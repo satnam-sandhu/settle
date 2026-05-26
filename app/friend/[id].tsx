@@ -119,6 +119,7 @@ export default function FriendDetailScreen() {
   };
 
   const handleAddExpense = () => {
+posthog.capture('create_an_expense')
     if (!isOnline) {
       hapticWarning();
       Alert.alert(

@@ -99,6 +99,7 @@ export default function CreateGroupScreen() {
   }, []);
 
   const handleClose = () => {
+posthog.capture('create_a_group')
     router.back();
   };
 

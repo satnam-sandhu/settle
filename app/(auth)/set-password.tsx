@@ -74,6 +74,7 @@ export default function SetPasswordScreen() {
   };
 
   const handleCreateAccount = async () => {
+posthog.capture('create_an_account')
     if (!validateForm()) return;
 
     setIsLoading(true);
