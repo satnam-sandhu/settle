@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "261937880816",
+    "project_id": "settle-d2c95",
+    "storage_bucket": "settle-d2c95.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:261937880816:android:4d5d0b86da061c1b1b6c35",
+        "android_client_info": {
+          "package_name": "com.vibecheck.settle"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDuYf8Wjhbbqc_4rLebT6vB_Udt-4WKvHM"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

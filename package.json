@@ -13,6 +13,7 @@
     "link": "supabase link --project-ref lxlxeotdanecurofzxzk",
     "db:push": "supabase db push",
     "functions:deploy": "supabase functions deploy --no-verify-jwt",
+    "functions:deploy:notification": "supabase functions deploy send-notification --no-verify-jwt",
     "deploy": "npm run link && npm run db:push && npm run functions:deploy"
   },
   "dependencies": {
@@ -30,6 +31,7 @@
     "expo-blur": "~15.0.8",
     "expo-constants": "~18.0.13",
     "expo-contacts": "~15.0.11",
+    "expo-dev-client": "~6.0.21",
     "expo-device": "~8.0.10",
     "expo-file-system": "~19.0.21",
     "expo-font": "~14.0.10",
@@ -39,6 +41,7 @@
     "expo-linear-gradient": "~15.0.8",
     "expo-linking": "~8.0.11",
     "expo-localization": "~17.0.8",
+    "expo-notifications": "~0.32.17",
     "expo-router": "~6.0.22",
     "expo-splash-screen": "~31.0.13",
     "expo-status-bar": "~3.0.9",

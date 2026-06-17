@@ -58,8 +58,55 @@ export interface DbUser {
   avatar_url: string | null;
   default_currency: CurrencyCode;
   is_registered?: boolean; // Optional because legacy users effectively have it true
+  notifications_enabled: boolean;
   created_at: string;
   updated_at: string;
+}
+
+/**
+ * Expo push token registered for a single device install.
+ */
+export interface DbUserPushToken {
+  id: string;
+  user_id: string;
+  token: string;
+  platform: 'ios' | 'android';
+  app_version: string | null;
+  device_name: string | null;
+  last_seen_at: string;
+  created_at: string;
+}
+
+export type NotificationDispatchStatus = 'skipped' | 'sent' | 'partial' | 'error';
+
+export interface DbNotificationDispatch {
+  id: string;
+  event: string;
+  entity_id: string | null;
+  actor_user_id: string | null;
+  title: string;
+  body: string;
+  collapse_id: string | null;
+  payload_data: Record<string, unknown> | null;
+  status: NotificationDispatchStatus;
+  skip_reason: string | null;
+  recipient_ids: string[] | null;
+  sent_count: number;
+  ticket_count: number;
+  error_message: string | null;
+  created_at: string;
+}
+
+export interface DbNotificationDispatchRecipient {
+  id: string;
+  dispatch_id: string;
+  user_id: string | null;
+  token: string | null;
+  status: 'skipped' | 'sent' | 'error';
+  skip_reason: string | null;
+  expo_ticket_id: string | null;
+  error_message: string | null;
+  created_at: string;
 }
 
 /**
@@ -179,7 +226,17 @@ export interface DbGroupBalance {
 // INSERT TYPES (for creating new records)
 // ============================================
 
-export type DbUserInsert = Omit<DbUser, 'created_at' | 'updated_at'>;
+export type DbUserInsert = Omit<DbUser, 'created_at' | 'updated_at'> & {
+  notifications_enabled?: boolean;
+};
+
+export type DbUserPushTokenInsert = Omit<DbUserPushToken, 'id' | 'created_at' | 'last_seen_at'> & {
+  last_seen_at?: string;
+};
+
+export type DbUserPushTokenUpdate = Partial<
+  Pick<DbUserPushToken, 'app_version' | 'device_name' | 'last_seen_at'>
+>;
 
 export type DbGroupInsert = Omit<DbGroup, 'id' | 'created_at' | 'updated_at'>;
 

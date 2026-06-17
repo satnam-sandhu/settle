@@ -12,13 +12,15 @@ import { AuthProvider, useAuth } from '@/contexts/auth-context';
 import { SettingsProvider } from '@/contexts/settings-context';
 import { SyncProvider } from '@/contexts/sync-context';
 import { useColorScheme } from '@/hooks/use-color-scheme';
+import { usePushNotifications } from '@/hooks/use-push-notifications';
 import { useRealtimeSync } from '@/hooks/use-realtime-sync';
 import {
+  isAnalyticsEnabled,
   posthogApiKey,
   posthogHost,
   PostHogProvider,
   setPostHogClient,
-  usePostHog
+  usePostHog,
 } from '@/lib/analytics';
 import { queryClient } from '@/lib/query-client';
 
@@ -44,7 +46,7 @@ function RootLayoutNav() {
   const segments = useSegments();
   const router = useRouter();
 
-  // Subscribe to realtime database changes
+  usePushNotifications();
   useRealtimeSync();
 
   useEffect(() => {
@@ -82,28 +84,41 @@ function RootLayoutNav() {
   );
 }
 
-export default function RootLayout() {
+function AppProviders({ children }: { children: React.ReactNode }) {
   return (
-    <PostHogProvider 
-      apiKey={posthogApiKey} 
+    <QueryClientProvider client={queryClient}>
+      <SafeAreaProvider>
+        <SettingsProvider>
+          <AuthProvider>
+            <SyncProvider>{children}</SyncProvider>
+          </AuthProvider>
+        </SettingsProvider>
+      </SafeAreaProvider>
+    </QueryClientProvider>
+  );
+}
+
+export default function RootLayout() {
+  if (!isAnalyticsEnabled()) {
+    return (
+      <AppProviders>
+        <RootLayoutNav />
+      </AppProviders>
+    );
+  }
+
+  return (
+    <PostHogProvider
+      apiKey={posthogApiKey}
       options={{
         host: posthogHost,
-        // Enable debug mode in development
         debug: __DEV__,
       }}
     >
       <AnalyticsSetup>
-        <QueryClientProvider client={queryClient}>
-          <SafeAreaProvider>
-            <SettingsProvider>
-              <AuthProvider>
-                <SyncProvider>
-                  <RootLayoutNav />
-                </SyncProvider>
-              </AuthProvider>
-            </SettingsProvider>
-          </SafeAreaProvider>
-        </QueryClientProvider>
+        <AppProviders>
+          <RootLayoutNav />
+        </AppProviders>
       </AnalyticsSetup>
     </PostHogProvider>
   );

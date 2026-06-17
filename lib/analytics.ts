@@ -17,6 +17,16 @@ export { PostHogProvider, usePostHog };
 export const posthogApiKey = process.env.EXPO_PUBLIC_POSTHOG_API_KEY || '';
 export const posthogHost = process.env.EXPO_PUBLIC_POSTHOG_HOST || 'https://eu.i.posthog.com';
 
+/**
+ * Analytics is on when EXPO_PUBLIC_ANALYTICS_ENABLED is not "false" and a PostHog key exists.
+ * Set EXPO_PUBLIC_ANALYTICS_ENABLED=false in .env during local development.
+ */
+export function isAnalyticsEnabled(): boolean {
+  const flag = process.env.EXPO_PUBLIC_ANALYTICS_ENABLED;
+  if (flag === 'false' || flag === '0') return false;
+  return Boolean(posthogApiKey);
+}
+
 // PostHog client instance (set via setPostHogClient from a component using usePostHog)
 let posthogClient: PostHog | null = null;
 
@@ -25,6 +35,10 @@ let posthogClient: PostHog | null = null;
  * Call this from a component that has access to usePostHog hook
  */
 export function setPostHogClient(client: PostHog | null): void {
+  if (!isAnalyticsEnabled()) {
+    posthogClient = null;
+    return;
+  }
   posthogClient = client;
   if (client && __DEV__) {
     console.log('[Analytics] PostHog client initialized');
@@ -35,12 +49,7 @@ export function setPostHogClient(client: PostHog | null): void {
  * Track an event with optional properties
  */
 export function track(eventName: string, properties?: Record<string, unknown>): void {
-  if (!posthogClient) {
-    if (__DEV__) {
-      console.log('[Analytics] Track (client not set):', eventName, properties);
-    }
-    return;
-  }
+  if (!isAnalyticsEnabled() || !posthogClient) return;
 
   // Enrich with common properties
   const enrichedProperties = {
@@ -71,12 +80,7 @@ export function identify(
     [key: string]: unknown;
   }
 ): void {
-  if (!posthogClient) {
-    if (__DEV__) {
-      console.log('[Analytics] Identify (client not set):', userId, properties);
-    }
-    return;
-  }
+  if (!isAnalyticsEnabled() || !posthogClient) return;
 
   posthogClient.identify(userId, properties);
 
@@ -89,7 +93,7 @@ export function identify(
  * Set or update user properties without changing identity
  */
 export function setUserProperties(properties: Record<string, unknown>): void {
-  if (!posthogClient) return;
+  if (!isAnalyticsEnabled() || !posthogClient) return;
 
   posthogClient.capture('$set', {
     $set: properties,
@@ -105,7 +109,7 @@ export function setUserProperties(properties: Record<string, unknown>): void {
  * Useful for properties like first_seen_at, signup_source, etc.
  */
 export function setUserPropertiesOnce(properties: Record<string, unknown>): void {
-  if (!posthogClient) return;
+  if (!isAnalyticsEnabled() || !posthogClient) return;
 
   posthogClient.capture('$set', {
     $set_once: properties,
@@ -121,12 +125,7 @@ export function setUserPropertiesOnce(properties: Record<string, unknown>): void
  * Unlinks future events from the current user
  */
 export function reset(): void {
-  if (!posthogClient) {
-    if (__DEV__) {
-      console.log('[Analytics] Reset (client not set)');
-    }
-    return;
-  }
+  if (!isAnalyticsEnabled() || !posthogClient) return;
 
   posthogClient.reset();
 
@@ -150,7 +149,7 @@ export function trackScreen(screenName: string, properties?: Record<string, unkn
  * Check if a feature flag is enabled for the current user
  */
 export async function isFeatureEnabled(flagKey: string): Promise<boolean> {
-  if (!posthogClient) return false;
+  if (!isAnalyticsEnabled() || !posthogClient) return false;
 
   try {
     const enabled = await posthogClient.isFeatureEnabled(flagKey);
@@ -164,7 +163,7 @@ export async function isFeatureEnabled(flagKey: string): Promise<boolean> {
  * Get the payload of a feature flag
  */
 export async function getFeatureFlagPayload(flagKey: string): Promise<unknown> {
-  if (!posthogClient) return null;
+  if (!isAnalyticsEnabled() || !posthogClient) return null;
 
   try {
     return await posthogClient.getFeatureFlagPayload(flagKey);
@@ -178,7 +177,7 @@ export async function getFeatureFlagPayload(flagKey: string): Promise<unknown> {
  * Call after user identification or when flags might have changed
  */
 export async function reloadFeatureFlags(): Promise<void> {
-  if (!posthogClient) return;
+  if (!isAnalyticsEnabled() || !posthogClient) return;
 
   try {
     await posthogClient.reloadFeatureFlagsAsync();
@@ -195,7 +194,7 @@ export async function reloadFeatureFlags(): Promise<void> {
  * Useful before app backgrounding or on critical events
  */
 export async function flush(): Promise<void> {
-  if (!posthogClient) return;
+  if (!isAnalyticsEnabled() || !posthogClient) return;
 
   try {
     await posthogClient.flush();
