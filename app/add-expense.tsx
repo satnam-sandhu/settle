@@ -49,7 +49,7 @@ import { useExpenseGroup } from '@/hooks/use-expense-group';
 import { useExpenses } from '@/hooks/use-expenses';
 import { useGroup } from '@/hooks/use-group';
 import { Analytics } from '@/lib/analytics';
-import { EXPENSE_EVENTS } from '@/lib/analytics-events';
+import { EXPENSE_EVENTS, type AddExpenseEntryPoint } from '@/lib/analytics-events';
 import { hapticHeavy, hapticSelection, hapticSuccess, hapticWarning } from '@/lib/haptics';
 import { HeaderSaveButton, NativeScreenHeader } from '@/lib/native-header';
 import { showPlatformAlert } from '@/lib/platform-picker';
@@ -57,12 +57,23 @@ import { supabase } from '@/lib/supabase';
 import type { CurrencyCode, DbCategory, ExpenseFormData, GroupMember, SplitType } from '@/types';
 import { CURRENCIES } from '@/types/database';
 
+function resolveAddExpenseEntryPoint(params: {
+  entry_point?: string;
+  groupId?: string;
+  friendId?: string;
+}): AddExpenseEntryPoint {
+  if (params.entry_point === 'tab_plus') return 'tab_plus';
+  if (params.groupId) return 'group';
+  if (params.friendId) return 'friend';
+  return 'home';
+}
+
 export default function AddExpenseScreen() {
   const params = useLocalSearchParams<{
     groupId?: string;
     friendId?: string;
     friendName?: string;
-    contactsOnly?: string;
+    entry_point?: string;
     expenseId?: string;
     expenseGroupId?: string;
   }>();
@@ -82,7 +93,6 @@ export default function AddExpenseScreen() {
   const hasPreselection = !!params.groupId || !!params.friendId;
   const isDirectExpense = !!params.friendId && !params.groupId;
   const isSearchMode = !hasPreselection && !isEditMode;
-  const contactsOnly = params.contactsOnly === 'true';
 
   const [resolvedGroupId, setResolvedGroupId] = useState<string | undefined>(params.groupId);
   const [selectedFriendId, setSelectedFriendId] = useState<string | undefined>(params.friendId);
@@ -109,7 +119,7 @@ export default function AddExpenseScreen() {
   // Analytics
   useEffect(() => {
     if (isEditMode) return;
-    const entryPoint = params.groupId ? 'group' : params.friendId ? 'friend' : contactsOnly ? 'friends_tab' : 'home';
+    const entryPoint = resolveAddExpenseEntryPoint(params);
     Analytics.trackScreen('add_expense', { entry_point: entryPoint });
     Analytics.track(EXPENSE_EVENTS.ADD_EXPENSE_STARTED, {
       entry_point: entryPoint,
@@ -1456,8 +1466,8 @@ export default function AddExpenseScreen() {
         {isSearchMode && !hasSelectedTarget && (
           <PeopleSearchSheet
             ref={bottomSheetRef}
-            title={contactsOnly ? 'Select Contact' : 'Add Expense'}
-            showGroups={!contactsOnly}
+            title="Add Expense"
+            showGroups
             onGroupSelect={handleSelectGroup}
             onContactSelect={handleSelectContact}
             onStartClose={() => {

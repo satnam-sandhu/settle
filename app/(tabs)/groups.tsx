@@ -80,6 +80,10 @@ export default function GroupsScreen() {
   const { groups, isLoading, error, refresh } = useGroups();
   const { isOnline } = useSync();
   const { scrubberBottom, listPaddingBottom } = useTabBarOffset();
+  const listContentStyle = useMemo(
+    () => ({ ...styles.listContent, paddingBottom: listPaddingBottom }),
+    [listPaddingBottom],
+  );
   const [refreshing, setRefreshing] = useState(false);
   const [activeFilter, setActiveFilter] = useState('active');
   const [scrubberVisible, setScrubberVisible] = useState(true);
@@ -306,10 +310,7 @@ export default function GroupsScreen() {
             )}
           </>
         }
-        contentContainerStyle={{
-          ...styles.listContent,
-          paddingBottom: listPaddingBottom,
-        }}
+        contentContainerStyle={listContentStyle}
         ListEmptyComponent={
           isLoading ? (
             <SkeletonList count={4} />

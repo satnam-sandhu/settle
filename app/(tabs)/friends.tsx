@@ -44,6 +44,10 @@ export default function FriendsScreen() {
   const { friends, isLoading, error, refresh } = useFriends();
   const { isOnline } = useSync();
   const { scrubberBottom, listPaddingBottom } = useTabBarOffset();
+  const listContentStyle = useMemo(
+    () => ({ ...styles.listContent, paddingBottom: listPaddingBottom }),
+    [listPaddingBottom],
+  );
   const [refreshing, setRefreshing] = useState(false);
   const [activeFilter, setActiveFilter] = useState<FilterType>('outstanding');
   const [scrubberVisible, setScrubberVisible] = useState(true);
@@ -109,16 +113,6 @@ export default function FriendsScreen() {
       pathname: '/add-expense',
       params: { friendId: friend.user.id, friendName: friend.user.name },
     });
-  };
-
-  const handleAddExpenseFromHeader = () => {
-    if (!isOnline) {
-      hapticWarning();
-      showOfflineAlert('Adding expenses requires an internet connection.');
-      return;
-    }
-    hapticLight();
-    router.push('/add-expense?contactsOnly=true');
   };
 
   const formatBalance = (balance: number, currency: string) => {
@@ -246,7 +240,10 @@ export default function FriendsScreen() {
             description={msg.description}
             {...(hasNoFriendsAtAll ? {
               actionLabel: 'Add Expense',
-              onAction: () => { hapticLight(); router.push('/add-expense'); },
+              onAction: () => {
+                hapticLight();
+                router.push('/(tabs)/add');
+              },
             } : {})}
           />
         </MotiView>
@@ -269,17 +266,6 @@ export default function FriendsScreen() {
             : 'Split and see who owes what'}
         </Text>
       </View>
-      {friends.length > 0 && (
-        <Pressable
-          onPress={handleAddExpenseFromHeader}
-          style={({ pressed }) => [
-            styles.headerAddButton,
-            { backgroundColor: colors.primary[500], opacity: pressed ? 0.8 : 1, transform: [{ scale: pressed ? 0.92 : 1 }] },
-          ]}
-        >
-          <IconSymbol name="plus" size={24} color={colors.white} />
-        </Pressable>
-      )}
     </MotiView>
   );
 
@@ -329,10 +315,7 @@ export default function FriendsScreen() {
         data={displayedFriends}
         renderItem={renderFriendCard}
         keyExtractor={(item) => item.user.id}
-        contentContainerStyle={{
-          ...styles.listContent,
-          paddingBottom: listPaddingBottom,
-        }}
+        contentContainerStyle={listContentStyle}
         ListHeaderComponent={renderHeader()}
         ListEmptyComponent={
           isLoading ? (
@@ -390,13 +373,6 @@ const styles = StyleSheet.create({
     paddingTop: 20,
     paddingBottom: 16,
     marginBottom: 16,
-  },
-  headerAddButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   headerTitle: {
     fontSize: 28,

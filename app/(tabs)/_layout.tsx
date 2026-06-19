@@ -10,13 +10,12 @@ import { brand } from '@/constants/colors';
 import { useSync } from '@/contexts/sync-context';
 import { usePlatformChrome } from '@/hooks/use-platform-chrome';
 import { Analytics } from '@/lib/analytics';
-import { NAV_EVENTS } from '@/lib/analytics-events';
+import { ADD_SHEET_EVENTS, NAV_EVENTS } from '@/lib/analytics-events';
 
 const TAB_ANALYTICS: Record<string, string> = {
   index: NAV_EVENTS.TAB_HOME_VIEWED,
   friends: NAV_EVENTS.TAB_FRIENDS_VIEWED,
   groups: NAV_EVENTS.TAB_GROUPS_VIEWED,
-  profile: NAV_EVENTS.TAB_PROFILE_VIEWED,
 };
 
 function TabAnalyticsListener() {
@@ -29,11 +28,15 @@ function TabAnalyticsListener() {
     const tab = segments[1] ?? 'index';
     if (tab === lastTab.current) return;
 
-    const event = TAB_ANALYTICS[tab];
-    if (event) {
-      Analytics.track(event);
-      lastTab.current = tab;
+    if (tab === 'add') {
+      Analytics.track(NAV_EVENTS.TAB_ADD_TAPPED);
+      Analytics.track(ADD_SHEET_EVENTS.ADD_SHEET_OPENED, { entry_point: 'tab_plus' });
+    } else {
+      const event = TAB_ANALYTICS[tab];
+      if (event) Analytics.track(event);
     }
+
+    lastTab.current = tab;
   }, [segments]);
 
   return null;
@@ -52,16 +55,13 @@ export default function TabLayout() {
     <View style={{ flex: 1 }}>
       <TabAnalyticsListener />
 
-      {Platform.OS === 'android' && (
-        <AnimatePresence>
-          {!isOnline && <OfflineBanner key="offline-banner" placement="top" />}
-        </AnimatePresence>
-      )}
+      <AnimatePresence>
+        {!isOnline && <OfflineBanner key="offline-banner" placement="top" />}
+      </AnimatePresence>
 
       {/*
-        minimizeBehavior requires a native ScrollView as the screen's first child.
-        FlashList (used on Home/Friends/Groups) does not support minimize-on-scroll yet.
-        See: https://docs.expo.dev/router/advanced/native-tabs/#limited-support-for-flatlist
+        Add tab uses NativeTabs.Trigger role="search" + nested Stack with headerSearchBarOptions.
+        https://docs.expo.dev/router/advanced/native-tabs/#separate-search-tab
       */}
       <NativeTabs
         minimizeBehavior="onScrollDown"
@@ -73,12 +73,6 @@ export default function TabLayout() {
         labelStyle={useExplicitNativeChrome ? { color: tabIconDefault } : undefined}
         blurEffect={iosTabBarBlurEffect}
       >
-        {Platform.OS === 'ios' && !isOnline && (
-          <NativeTabs.BottomAccessory>
-            <OfflineBanner placement="accessory" />
-          </NativeTabs.BottomAccessory>
-        )}
-
         <NativeTabs.Trigger name="index">
           <NativeTabs.Trigger.Icon
             sf={{ default: 'house', selected: 'house.fill' }}
@@ -109,14 +103,21 @@ export default function TabLayout() {
           <NativeTabs.Trigger.Label>Groups</NativeTabs.Trigger.Label>
         </NativeTabs.Trigger>
 
-        <NativeTabs.Trigger name="profile">
+        <NativeTabs.Trigger
+          name="add"
+          role={Platform.OS === 'ios' ? 'search' : undefined}
+        >
           <NativeTabs.Trigger.Icon
-            sf={{ default: 'person.crop.circle', selected: 'person.crop.circle.fill' }}
+            sf="magnifyingglass"
             src={
-              <NativeTabs.Trigger.VectorIcon family={MaterialIcons} name="account-circle" />
+              <NativeTabs.Trigger.VectorIcon family={MaterialIcons} name="search" />
             }
           />
-          <NativeTabs.Trigger.Label>Profile</NativeTabs.Trigger.Label>
+          {Platform.OS === 'ios' || true ? (
+            <NativeTabs.Trigger.Label hidden />
+          ) : (
+            <NativeTabs.Trigger.Label>Search</NativeTabs.Trigger.Label>
+          )}
         </NativeTabs.Trigger>
       </NativeTabs>
     </View>

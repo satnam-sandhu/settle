@@ -1,31 +1,56 @@
 /**
  * Home Screen
- * 
- * Main dashboard showing user summary and quick actions.
+ *
+ * Glanceable money view with balance summary and recent activity.
  */
 
 import { IconSymbol } from '@/components/ui/icon-symbol';
+import BottomSheet from '@gorhom/bottom-sheet';
 import { useFocusEffect } from '@react-navigation/native';
 import { FlashList } from '@shopify/flash-list';
 import { router } from 'expo-router';
 import { MotiView } from 'moti';
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { BalanceSummaryCard } from '@/components/balance-summary-card';
+import { SettlePickerSheet } from '@/components/settle-picker-sheet';
 import { Avatar } from '@/components/ui/avatar';
 import { EmptyState } from '@/components/ui/empty-state';
-import { Skeleton, SkeletonActivityList } from '@/components/ui/skeleton';
+import { SkeletonActivityList } from '@/components/ui/skeleton';
 import { colors } from '@/constants/colors';
 import { useAuth } from '@/contexts/auth-context';
 import { useSync } from '@/contexts/sync-context';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useFriends } from '@/hooks/use-friends';
 import { useRecentActivity, type ActivityItem } from '@/hooks/use-recent-activity';
+import { useTabBarOffset } from '@/hooks/use-tab-bar-offset';
 import { useUser } from '@/hooks/use-user';
-import { hapticLight, hapticWarning } from '@/lib/haptics';
-import { showOfflineAlert } from '@/lib/platform-picker';
+import { hapticLight } from '@/lib/haptics';
+import { Analytics } from '@/lib/analytics';
+import { HOME_EVENTS, NAV_EVENTS, SETTLEMENT_EVENTS } from '@/lib/analytics-events';
 import { formatCurrency } from '@/lib/utils';
+import type { Friend } from '@/types';
+
+/** Registered by HomeScreen so HomeHeader can open the sheet without prop churn. */
+const homeSettlePickerActions = {
+  open: null as (() => void) | null,
+};
+
+function computeBalanceSummary(friends: Friend[]) {
+  if (!friends || friends.length === 0) {
+    return { totalOwed: 0, totalOwing: 0, netBalance: 0 };
+  }
+  let totalOwed = 0;
+  let totalOwing = 0;
+  friends.forEach(friend => {
+    if (friend.total_balance > 0) totalOwed += friend.total_balance;
+    else if (friend.total_balance < 0) totalOwing += Math.abs(friend.total_balance);
+  });
+  return { totalOwed, totalOwing, netBalance: totalOwed - totalOwing };
+}
 
 /**
  * HomeHeader — stable module-level component so FlashList never remounts it.
@@ -40,52 +65,20 @@ function HomeHeader() {
   const isDark = colorScheme === 'dark';
   const { user: authUser } = useAuth();
   const { user } = useUser();
-  const { isOnline } = useSync();
   const { friends, isLoading: isLoadingFriends } = useFriends();
 
   const textColor = isDark ? colors.text.dark.primary : colors.text.light.primary;
   const secondaryTextColor = isDark ? colors.text.dark.secondary : colors.text.light.secondary;
-  const cardBg = isDark ? colors.gray[800] : colors.white;
 
-  const balanceSummary = useMemo(() => {
-    if (!friends || friends.length === 0) {
-      return { totalOwed: 0, totalOwing: 0, netBalance: 0 };
-    }
-    let totalOwed = 0;
-    let totalOwing = 0;
-    friends.forEach(friend => {
-      if (friend.total_balance > 0) totalOwed += friend.total_balance;
-      else if (friend.total_balance < 0) totalOwing += Math.abs(friend.total_balance);
-    });
-    return { totalOwed, totalOwing, netBalance: totalOwed - totalOwing };
-  }, [friends]);
+  const balanceSummary = useMemo(() => computeBalanceSummary(friends), [friends]);
 
   const userName = user?.name || authUser?.user_metadata?.name || 'User';
 
-  const handleAddExpense = useCallback(() => {
-    if (!isOnline) {
-      hapticWarning();
-      showOfflineAlert('Adding expenses requires an internet connection.');
-      return;
-    }
+  const handleOpenProfile = useCallback(() => {
     hapticLight();
-    router.push('/add-expense');
-  }, [isOnline]);
-
-  const handleCreateGroup = useCallback(() => {
-    hapticLight();
-    router.push('/create-group');
+    Analytics.track(NAV_EVENTS.PROFILE_OPENED, { entry_point: 'home_avatar' });
+    router.push('/profile');
   }, []);
-
-  const handleSettleUp = useCallback(() => {
-    if (!isOnline) {
-      hapticWarning();
-      showOfflineAlert('Settling up requires an internet connection.');
-      return;
-    }
-    hapticLight();
-    router.push('/settle-up');
-  }, [isOnline]);
 
   return (
     <>
@@ -105,7 +98,7 @@ function HomeHeader() {
           </Text>
         </View>
         <Pressable
-          onPress={() => router.push('/(tabs)/profile')}
+          onPress={handleOpenProfile}
           style={({ pressed }) => [
             styles.avatarButton,
             { opacity: pressed ? 0.7 : 1 },
@@ -116,124 +109,19 @@ function HomeHeader() {
       </MotiView>
 
       {/* Balance Summary Card */}
-      <MotiView
-        from={{ opacity: 0, translateY: 20, scale: 0.95 }}
-        animate={{ opacity: 1, translateY: 0, scale: 1 }}
-        transition={{ type: 'spring', damping: 18, stiffness: 100, delay: 150 }}
-        style={[
-          styles.balanceCard,
-          {
-            backgroundColor: balanceSummary.netBalance >= 0
-              ? colors.success
-              : colors.error,
-          },
-        ]}
-      >
-        <Text style={styles.balanceLabel}>
-          {balanceSummary.netBalance >= 0 ? 'You are owed' : 'You owe'}
-        </Text>
-        {isLoadingFriends ? (
-          <>
-            <Skeleton width={130} height={38} borderRadius={8} style={{ marginVertical: 4, opacity: 0.35 }} />
-            <View style={{ flexDirection: 'row', gap: 16, marginTop: 10 }}>
-              <Skeleton width={95} height={18} borderRadius={6} style={{ opacity: 0.3 }} />
-              <Skeleton width={95} height={18} borderRadius={6} style={{ opacity: 0.3 }} />
-            </View>
-          </>
-        ) : (
-          <>
-            <Text style={styles.balanceValue}>
-              {formatCurrency(Math.abs(balanceSummary.netBalance))}
-            </Text>
-            <View style={styles.balanceRow}>
-              <View style={styles.balanceItem}>
-                <IconSymbol name="arrow.up.circle" size={20} color={colors.white} />
-                <View>
-                  <Text style={styles.balanceItemLabel}>You get back</Text>
-                  <Text style={styles.balanceItemValue}>
-                    {formatCurrency(balanceSummary.totalOwed)}
-                  </Text>
-                </View>
-              </View>
-              <View style={styles.balanceDivider} />
-              <View style={styles.balanceItem}>
-                <IconSymbol name="arrow.down.circle" size={20} color={colors.white} />
-                <View>
-                  <Text style={styles.balanceItemLabel}>You owe</Text>
-                  <Text style={styles.balanceItemValue}>
-                    {formatCurrency(balanceSummary.totalOwing)}
-                  </Text>
-                </View>
-              </View>
-            </View>
-          </>
-        )}
-      </MotiView>
-
-      {/* Quick Actions */}
-      <MotiView
-        from={{ opacity: 0, translateY: 20 }}
-        animate={{ opacity: 1, translateY: 0 }}
-        transition={{ type: 'spring', damping: 18, stiffness: 120, delay: 300 }}
-      >
-        <Text style={[styles.sectionTitle, { color: textColor }]}>Quick Actions</Text>
-        <View style={styles.actionsRow}>
-          <Pressable
-            onPress={handleAddExpense}
-            style={({ pressed }) => [
-              styles.actionCard,
-              {
-                backgroundColor: cardBg,
-                opacity: pressed ? 0.9 : 1,
-                transform: [{ scale: pressed ? 0.95 : 1 }],
-              },
-            ]}
-          >
-            <View style={[styles.actionIcon, { backgroundColor: colors.primary[100] }]}>
-              <IconSymbol name="plus" size={28} color={colors.primary[500]} />
-            </View>
-            <Text style={[styles.actionLabel, { color: textColor }]}>Add Expense</Text>
-          </Pressable>
-          <Pressable
-            onPress={handleCreateGroup}
-            style={({ pressed }) => [
-              styles.actionCard,
-              {
-                backgroundColor: cardBg,
-                opacity: pressed ? 0.9 : 1,
-                transform: [{ scale: pressed ? 0.95 : 1 }],
-              },
-            ]}
-          >
-            <View style={[styles.actionIcon, { backgroundColor: colors.primary[100] }]}>
-              <IconSymbol name="person.2.fill" size={28} color={colors.primary[500]} />
-            </View>
-            <Text style={[styles.actionLabel, { color: textColor }]}>Create Group</Text>
-          </Pressable>
-          <Pressable
-            onPress={handleSettleUp}
-            style={({ pressed }) => [
-              styles.actionCard,
-              {
-                backgroundColor: cardBg,
-                opacity: pressed ? 0.9 : 1,
-                transform: [{ scale: pressed ? 0.95 : 1 }],
-              },
-            ]}
-          >
-            <View style={[styles.actionIcon, { backgroundColor: colors.warning + '20' }]}>
-              <IconSymbol name="creditcard" size={28} color={colors.warning} />
-            </View>
-            <Text style={[styles.actionLabel, { color: textColor }]}>Settle Up</Text>
-          </Pressable>
-        </View>
-      </MotiView>
+      <BalanceSummaryCard
+        netBalance={balanceSummary.netBalance}
+        totalOwed={balanceSummary.totalOwed}
+        totalOwing={balanceSummary.totalOwing}
+        isLoading={isLoadingFriends}
+        onSettleUp={() => homeSettlePickerActions.open?.()}
+      />
 
       {/* Recent Activity title */}
       <MotiView
         from={{ opacity: 0, translateY: 20 }}
         animate={{ opacity: 1, translateY: 0 }}
-        transition={{ type: 'spring', damping: 18, stiffness: 100, delay: 350 }}
+        transition={{ type: 'spring', damping: 18, stiffness: 100, delay: 300 }}
       >
         <Text style={[styles.sectionTitle, { color: textColor }]}>Recent Activity</Text>
       </MotiView>
@@ -244,12 +132,32 @@ function HomeHeader() {
 export default function HomeScreen() {
   const colorScheme = useColorScheme() ?? 'light';
   const isDark = colorScheme === 'dark';
-  const insets = useSafeAreaInsets();
+  const { contentPaddingBottom } = useTabBarOffset();
+  const settlePickerRef = useRef<BottomSheet>(null);
   const { user } = useUser();
   const { isOnline } = useSync();
   const { friends, isLoading: isLoadingFriends, refresh: refreshFriends } = useFriends();
   const { activities, isLoading: isLoadingActivity, refresh: refreshActivity } = useRecentActivity();
   const [refreshing, setRefreshing] = useState(false);
+
+  const balanceSummary = useMemo(() => computeBalanceSummary(friends), [friends]);
+
+  const listContentStyle = useMemo(
+    () => [styles.contentContainer, { paddingBottom: contentPaddingBottom }],
+    [contentPaddingBottom],
+  );
+
+  useEffect(() => {
+    homeSettlePickerActions.open = () => {
+      Analytics.track(SETTLEMENT_EVENTS.SETTLE_UP_SHEET_OPENED, {
+        entry_point: 'home_summary_card',
+      });
+      settlePickerRef.current?.expand();
+    };
+    return () => {
+      homeSettlePickerActions.open = null;
+    };
+  }, []);
 
   const handleRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -264,7 +172,22 @@ export default function HomeScreen() {
         refreshFriends();
         refreshActivity();
       }
-    }, [isOnline, refreshFriends, refreshActivity])
+
+      if (!isLoadingFriends) {
+        Analytics.track(HOME_EVENTS.SUMMARY_CARD_VIEWED, {
+          net_balance: balanceSummary.netBalance,
+          has_outstanding: balanceSummary.totalOwed > 0 || balanceSummary.totalOwing > 0,
+        });
+      }
+    }, [
+      isOnline,
+      refreshFriends,
+      refreshActivity,
+      isLoadingFriends,
+      balanceSummary.netBalance,
+      balanceSummary.totalOwed,
+      balanceSummary.totalOwing,
+    ])
   );
 
   const textColor = isDark ? colors.text.dark.primary : colors.text.light.primary;
@@ -432,42 +355,54 @@ export default function HomeScreen() {
   }, [user?.id, cardBg, textColor, secondaryTextColor, handleActivityPress, formatDate]);
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor }]} edges={['top']}>
-      <FlashList
-        data={activities}
-        renderItem={renderActivityItem}
-        keyExtractor={(item) => item.id}
-        ListHeaderComponent={HomeHeader}
-        ListEmptyComponent={
-          isLoadingActivity ? (
-            <SkeletonActivityList count={4} />
-          ) : (
-            <View style={[styles.emptyState, { backgroundColor: cardBg }]}>
-              <EmptyState
-                icon="clock"
-                title="No recent activity"
-                description="Your expenses and settlements will appear here"
-                compact
-              />
-            </View>
-          )
-        }
-        contentContainerStyle={[styles.contentContainer, { paddingBottom: insets.bottom + 73 }]}
-        showsVerticalScrollIndicator={false}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={handleRefresh}
-            tintColor={colors.primary[500]}
-            colors={[colors.primary[500]]}
-          />
-        }
+    <GestureHandlerRootView style={styles.flex}>
+      <SafeAreaView style={[styles.container, { backgroundColor }]} edges={['top']}>
+        <FlashList
+          data={activities}
+          renderItem={renderActivityItem}
+          keyExtractor={(item) => item.id}
+          ListHeaderComponent={HomeHeader}
+          ListEmptyComponent={
+            isLoadingActivity ? (
+              <SkeletonActivityList count={4} />
+            ) : (
+              <View style={[styles.emptyState, { backgroundColor: cardBg }]}>
+                <EmptyState
+                  icon="clock"
+                  title="No recent activity"
+                  description="Your expenses and settlements will appear here"
+                  compact
+                />
+              </View>
+            )
+          }
+          contentContainerStyle={listContentStyle}
+          showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={handleRefresh}
+              tintColor={colors.primary[500]}
+              colors={[colors.primary[500]]}
+            />
+          }
+        />
+      </SafeAreaView>
+
+      {/* Settle picker — outside SafeAreaView so it covers full screen */}
+      <SettlePickerSheet
+        ref={settlePickerRef}
+        friends={friends}
+        isLoading={isLoadingFriends}
       />
-    </SafeAreaView>
+    </GestureHandlerRootView>
   );
 }
 
 const styles = StyleSheet.create({
+  flex: {
+    flex: 1,
+  },
   container: {
     flex: 1,
   },
@@ -500,99 +435,16 @@ const styles = StyleSheet.create({
   avatarButton: {
     marginLeft: 16,
   },
-  balanceCard: {
-    borderRadius: 20,
-    padding: 24,
-    marginBottom: 24,
-  },
-  balanceLabel: {
-    fontSize: 14,
-    color: colors.white,
-    opacity: 0.8,
-    marginBottom: 4,
-  },
-  balanceValue: {
-    fontSize: 36,
-    fontWeight: '700',
-    color: colors.white,
-    marginBottom: 20,
-  },
-  balanceRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  balanceItem: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  balanceItemLabel: {
-    fontSize: 12,
-    color: colors.white,
-    opacity: 0.8,
-  },
-  balanceItemValue: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: colors.white,
-  },
-  balanceDivider: {
-    width: 1,
-    height: 40,
-    backgroundColor: colors.white,
-    opacity: 0.3,
-    marginHorizontal: 16,
-  },
   sectionTitle: {
     fontSize: 18,
     fontWeight: '600',
     marginBottom: 16,
-  },
-  actionsRow: {
-    flexDirection: 'row',
-    gap: 12,
-    marginBottom: 24,
-  },
-  actionCard: {
-    flex: 1,
-    alignItems: 'center',
-    padding: 16,
-    borderRadius: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 2,
-  },
-  actionIcon: {
-    width: 56,
-    height: 56,
-    borderRadius: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 8,
-  },
-  actionLabel: {
-    fontSize: 12,
-    fontWeight: '500',
-    textAlign: 'center',
   },
   emptyState: {
     alignItems: 'center',
     justifyContent: 'center',
     padding: 32,
     borderRadius: 20,
-  },
-  emptyStateTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    marginTop: 16,
-    marginBottom: 4,
-  },
-  emptyStateText: {
-    fontSize: 14,
-    textAlign: 'center',
   },
   activityItem: {
     flexDirection: 'row',

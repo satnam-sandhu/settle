@@ -1,31 +1,53 @@
 /**
- * Layout offsets for content floating above native tab bars.
+ * Layout offsets for floating UI above native tab bars.
  *
- * The old JS tab bar used a fixed ~61px chrome height. Native tabs differ by platform:
- * - iOS UITabBar ≈ 49pt above the home indicator
- * - Android Material bottom nav ≈ 80dp (icon + label)
+ * The add/search affordance is a native `NativeTabs.Trigger role="search"` tab —
+ * not a custom overlay — so offsets only account for the tab bar + FilterScrubber.
  */
 
 import { Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-const NATIVE_TAB_BAR_HEIGHT = Platform.select({
-  ios: 49,
-  android: 80,
-  default: 56,
-})!;
-
-const SCRUBBER_GAP = 12;
-const SCRUBBER_HEIGHT = 56;
+export const TAB_BAR_LAYOUT = {
+  NATIVE_TAB_BAR_HEIGHT: Platform.select({
+    ios: 49,
+    android: 80,
+    default: 56,
+  })!,
+  /** Expanded FilterScrubber height — keep in sync with filter-scrubber EXPANDED_H */
+  SCRUBBER_HEIGHT: 56,
+  SCRUBBER_GAP: 12,
+  LIST_CLEARANCE: 24,
+} as const;
 
 export function useTabBarOffset() {
   const insets = useSafeAreaInsets();
+  const { NATIVE_TAB_BAR_HEIGHT, SCRUBBER_HEIGHT, SCRUBBER_GAP, LIST_CLEARANCE } =
+    TAB_BAR_LAYOUT;
+
   const tabBarOffset = insets.bottom + NATIVE_TAB_BAR_HEIGHT;
 
+  if (Platform.OS === 'ios') {
+    const scrubberBottom = NATIVE_TAB_BAR_HEIGHT + SCRUBBER_GAP;
+    const listPaddingBottom = scrubberBottom + SCRUBBER_HEIGHT + LIST_CLEARANCE;
+    const contentPaddingBottom = NATIVE_TAB_BAR_HEIGHT + LIST_CLEARANCE;
+
+    return {
+      tabBarOffset,
+      scrubberBottom,
+      listPaddingBottom,
+      contentPaddingBottom,
+    };
+  }
+
+  const scrubberBottom = tabBarOffset + SCRUBBER_GAP;
+  const listPaddingBottom = scrubberBottom + SCRUBBER_HEIGHT + LIST_CLEARANCE;
+  const contentPaddingBottom = tabBarOffset + LIST_CLEARANCE;
+
   return {
-    /** Bottom inset for floating UI (e.g. FilterScrubber) */
-    scrubberBottom: tabBarOffset + SCRUBBER_GAP,
-    /** List content padding to clear tab bar + scrubber */
-    listPaddingBottom: tabBarOffset + SCRUBBER_HEIGHT + SCRUBBER_GAP + 24,
+    tabBarOffset,
+    scrubberBottom,
+    listPaddingBottom,
+    contentPaddingBottom,
   };
 }

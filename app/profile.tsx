@@ -1,7 +1,7 @@
 /**
  * Profile Screen
- * 
- * View and edit user profile information.
+ *
+ * Stack route for viewing and editing user profile (opened from Home avatar).
  */
 
 import { IconSymbol } from '@/components/ui/icon-symbol';
@@ -28,6 +28,7 @@ import { useSync } from '@/contexts/sync-context';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useUser } from '@/hooks/use-user';
 import { hapticLight, hapticSelection, hapticSuccess, hapticWarning } from '@/lib/haptics';
+import { NativeScreenHeader } from '@/lib/native-header';
 import { deleteImage, getPathFromUrl, pickImageFromCamera, pickImageFromLibrary, uploadAvatar } from '@/lib/image-upload';
 import {
   showOfflineAlert,
@@ -344,26 +345,17 @@ export default function ProfileScreen() {
   const inputBg = isDark ? colors.gray[700] : colors.gray[50];
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor }]} edges={['top']}>
+    <SafeAreaView style={[styles.container, { backgroundColor }]} edges={['bottom']}>
+      <NativeScreenHeader title="Profile" />
       <KeyboardAvoidingView
         style={styles.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       >
         <ScrollView
-          contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 89 }]}
+          contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 24 }]}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
         >
-          {/* Header */}
-          <MotiView
-            from={{ opacity: 0, translateY: -20 }}
-            animate={{ opacity: 1, translateY: 0 }}
-            transition={{ type: 'timing', duration: 500 }}
-            style={styles.header}
-          >
-            <Text style={[styles.title, { color: textColor }]}>Profile</Text>
-          </MotiView>
-
           {/* Avatar Section */}
           <MotiView
             from={{ opacity: 0, scale: 0.9 }}
@@ -671,14 +663,7 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     paddingHorizontal: 24,
-    paddingTop: 20,
-  },
-  header: {
-    marginBottom: 24,
-  },
-  title: {
-    fontSize: 28,
-    fontWeight: '700',
+    paddingTop: 8,
   },
   avatarSection: {
     alignItems: 'center',

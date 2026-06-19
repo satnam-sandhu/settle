@@ -71,6 +71,7 @@ export interface FilterScrubberProps {
 const { width: SCREEN_W } = Dimensions.get('window');
 const isAndroid = Platform.OS === 'android';
 const COLLAPSED_H = 38;
+/** Keep in sync with TAB_BAR_LAYOUT.SCRUBBER_HEIGHT in use-tab-bar-offset */
 const EXPANDED_H  = 56;
 
 function getMetrics(count: number) {

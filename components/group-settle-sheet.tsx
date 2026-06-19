@@ -139,7 +139,7 @@ export const GroupSettleSheet = forwardRef<BottomSheet, GroupSettleSheetProps>(
       (member: UserSummary) => {
         hapticLight();
         closeSheet();
-        router.push(`/settle-up?friendId=${member.id}`);
+        router.push(`/settle-up?friendId=${member.id}&entry_point=group_detail`);
       },
       [closeSheet]
     );

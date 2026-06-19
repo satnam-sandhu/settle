@@ -149,6 +149,7 @@ export default function FriendDetailScreen() {
         friendName: friend?.user.name || params.name,
         balance: friend?.total_balance?.toString(),
         currency: friend?.primary_currency,
+        entry_point: 'friend_detail',
       },
     });
   };

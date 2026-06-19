@@ -14,7 +14,7 @@
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import BottomSheet, { BottomSheetFlashList, BottomSheetTextInput } from '@gorhom/bottom-sheet';
 import { MotiView } from 'moti';
-import { forwardRef, useCallback, useEffect, useMemo, useState } from 'react';
+import { forwardRef, useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import {
   Linking,
   Pressable,
@@ -34,13 +34,63 @@ import { useColorScheme } from '@/hooks/use-color-scheme';
 import type { SearchResultGroup } from '@/hooks/use-contact-group-search';
 import type { EnrichedContact } from '@/hooks/use-enriched-contacts';
 import { useEnrichedContacts } from '@/hooks/use-enriched-contacts';
+import { useFriends } from '@/hooks/use-friends';
+import type {
+  OutstandingTarget,
+  RecentExpenseTarget,
+} from '@/hooks/use-recent-expense-targets';
+import { formatCurrency } from '@/lib/utils';
+import type { Friend, GroupListItem } from '@/types';
 
 // ─── List item union ──────────────────────────────────────────────────────────
 
 type SectionHeaderItem = { _type: 'sectionHeader'; label: string };
-type GroupListItem = { _type: 'group'; data: SearchResultGroup };
+type GroupListItemRow = { _type: 'group'; data: SearchResultGroup };
 type ContactListItem = { _type: 'contact'; data: EnrichedContact };
-type ListItem = SectionHeaderItem | GroupListItem | ContactListItem;
+type RecentListItem = { _type: 'recent'; data: RecentExpenseTarget };
+type OutstandingFriendListItem = { _type: 'outstandingFriend'; data: Friend };
+type OutstandingGroupListItem = { _type: 'outstandingGroup'; data: GroupListItem };
+type ListItem =
+  | SectionHeaderItem
+  | GroupListItemRow
+  | ContactListItem
+  | RecentListItem
+  | OutstandingFriendListItem
+  | OutstandingGroupListItem;
+
+function friendToEnrichedContact(friend: Friend): EnrichedContact {
+  return {
+    id: friend.user.id,
+    name: friend.user.name,
+    phone: friend.user.phone ?? '',
+    userId: friend.user.id,
+    avatarUrl: friend.user.avatar_url,
+    hasDirectGroup: friend.hasDirectGroup ?? false,
+  };
+}
+
+function groupListItemToSearchGroup(group: GroupListItem): SearchResultGroup {
+  return {
+    type: 'group',
+    id: group.id,
+    name: group.name,
+    image_url: group.image_url,
+    memberCount: group.member_count,
+  };
+}
+
+function getBalanceLabel(balance: number): { text: string; color: string } {
+  if (balance > 0) {
+    return {
+      text: `you get back ${formatCurrency(balance)}`,
+      color: colors.success,
+    };
+  }
+  return {
+    text: `you owe ${formatCurrency(Math.abs(balance))}`,
+    color: colors.error,
+  };
+}
 
 // ─── Props ────────────────────────────────────────────────────────────────────
 
@@ -57,6 +107,15 @@ export interface PeopleSearchSheetProps {
   showGroups?: boolean;
   /** Fired when a group row is tapped */
   onGroupSelect?: (group: SearchResultGroup) => void;
+  /** Tiered Recent / Outstanding sections when search is empty (global add sheet) */
+  showRecentsTier?: boolean;
+  recentTargets?: RecentExpenseTarget[];
+  outstandingTargets?: OutstandingTarget[];
+  recordRecentTarget?: (target: Pick<RecentExpenseTarget, 'type' | 'id' | 'name'>) => void;
+  /** Focus search field when the sheet opens */
+  autoFocusSearch?: boolean;
+  /** Sheet index changes (-1 closed, 0+ open) */
+  onSheetChange?: (index: number) => void;
   title?: string;
   /** When provided, a "Done" button appears in the header */
   doneText?: string;
@@ -75,6 +134,12 @@ export const PeopleSearchSheet = forwardRef<BottomSheet, PeopleSearchSheetProps>
       selectedIds,
       showGroups = false,
       onGroupSelect,
+      showRecentsTier = false,
+      recentTargets = [],
+      outstandingTargets = [],
+      recordRecentTarget,
+      autoFocusSearch = false,
+      onSheetChange,
       title = 'Add Members',
       doneText,
       onClose,
@@ -87,6 +152,7 @@ export const PeopleSearchSheet = forwardRef<BottomSheet, PeopleSearchSheetProps>
     const isDark = colorScheme === 'dark';
     const snapPoints = useMemo(() => ['90%'], []);
     const [searchQuery, setSearchQuery] = useState('');
+    const [shouldFocusSearch, setShouldFocusSearch] = useState(false);
 
     const textColor = isDark ? colors.text.dark.primary : colors.text.light.primary;
     const secondaryTextColor = isDark ? colors.text.dark.secondary : colors.text.light.secondary;
@@ -94,15 +160,101 @@ export const PeopleSearchSheet = forwardRef<BottomSheet, PeopleSearchSheetProps>
 
     const { contacts, groups, isLoading, hasContactPermission, loadInitialData } =
       useEnrichedContacts();
+    const { friends } = useFriends();
 
     useEffect(() => {
       loadInitialData();
     }, [loadInitialData]);
 
+    const handleGroupPress = useCallback(
+      (group: SearchResultGroup) => {
+        if (showRecentsTier) {
+          recordRecentTarget?.({ type: 'group', id: group.id, name: group.name });
+        }
+        onGroupSelect?.(group);
+      },
+      [showRecentsTier, recordRecentTarget, onGroupSelect]
+    );
+
+    const handleContactPress = useCallback(
+      (contact: EnrichedContact) => {
+        onContactSelect(contact);
+      },
+      [onContactSelect]
+    );
+
+    const handleRecentPress = useCallback(
+      (target: RecentExpenseTarget) => {
+        if (target.type === 'group') {
+          const group = groups.find(item => item.id === target.id);
+          if (group) {
+            handleGroupPress(group);
+            return;
+          }
+          handleGroupPress({
+            type: 'group',
+            id: target.id,
+            name: target.name,
+            image_url: null,
+            memberCount: 0,
+          });
+          return;
+        }
+
+        const friend = friends.find(item => item.user.id === target.id);
+        if (friend) {
+          handleContactPress(friendToEnrichedContact(friend));
+          return;
+        }
+
+        handleContactPress({
+          id: target.id,
+          name: target.name,
+          phone: '',
+          userId: target.id,
+          avatarUrl: null,
+          hasDirectGroup: false,
+        });
+      },
+      [friends, groups, handleContactPress, handleGroupPress]
+    );
+
     // ── Filtered list ─────────────────────────────────────────────────────────
 
     const listItems = useMemo<ListItem[]>(() => {
       const q = searchQuery.trim().toLowerCase();
+
+      if (showRecentsTier && !q) {
+        const items: ListItem[] = [];
+
+        if (recentTargets.length > 0) {
+          items.push({ _type: 'sectionHeader', label: 'Recent' });
+          recentTargets.forEach(target => items.push({ _type: 'recent', data: target }));
+        }
+
+        if (outstandingTargets.length > 0) {
+          items.push({ _type: 'sectionHeader', label: 'Outstanding' });
+          outstandingTargets.forEach(target => {
+            if (target.kind === 'friend') {
+              items.push({ _type: 'outstandingFriend', data: target.friend });
+            } else {
+              items.push({ _type: 'outstandingGroup', data: target.group });
+            }
+          });
+        }
+
+        if (showGroups && groups.length > 0) {
+          items.push({ _type: 'sectionHeader', label: 'Groups' });
+          groups.forEach(group => items.push({ _type: 'group', data: group }));
+        }
+
+        if (contacts.length > 0) {
+          items.push({ _type: 'sectionHeader', label: 'Contacts' });
+          contacts.forEach(contact => items.push({ _type: 'contact', data: contact }));
+        }
+
+        return items;
+      }
 
       const filteredGroups = showGroups
         ? groups.filter(g => !q || g.name.toLowerCase().includes(q))
@@ -127,7 +279,15 @@ export const PeopleSearchSheet = forwardRef<BottomSheet, PeopleSearchSheetProps>
       }
 
       return items;
-    }, [searchQuery, contacts, groups, showGroups]);
+    }, [
+      searchQuery,
+      contacts,
+      groups,
+      showGroups,
+      showRecentsTier,
+      recentTargets,
+      outstandingTargets,
+    ]);
 
     const contactCount = useMemo(
       () => listItems.filter(i => i._type === 'contact').length,
@@ -138,6 +298,7 @@ export const PeopleSearchSheet = forwardRef<BottomSheet, PeopleSearchSheetProps>
 
     const handleSheetClose = useCallback(() => {
       setSearchQuery('');
+      setShouldFocusSearch(false);
       onClose?.();
     }, [onClose]);
 
@@ -160,7 +321,7 @@ export const PeopleSearchSheet = forwardRef<BottomSheet, PeopleSearchSheetProps>
     const renderGroupRow = useCallback(
       (group: SearchResultGroup) => (
         <Pressable
-          onPress={() => onGroupSelect?.(group)}
+          onPress={() => handleGroupPress(group)}
           style={({ pressed }) => [styles.row, { opacity: pressed ? 0.75 : 1, transform: [{ scale: pressed ? 0.97 : 1 }] }]}
         >
           <Avatar group={group} size={44} />
@@ -175,7 +336,81 @@ export const PeopleSearchSheet = forwardRef<BottomSheet, PeopleSearchSheetProps>
           <IconSymbol name="chevron.right" size={20} color={secondaryTextColor} />
         </Pressable>
       ),
-      [onGroupSelect, textColor, secondaryTextColor]
+      [handleGroupPress, textColor, secondaryTextColor]
+    );
+
+    const renderOutstandingFriendRow = useCallback(
+      (friend: Friend) => {
+        const balance = getBalanceLabel(friend.total_balance);
+
+        return (
+          <Pressable
+            onPress={() => handleContactPress(friendToEnrichedContact(friend))}
+            style={({ pressed }) => [styles.row, { opacity: pressed ? 0.75 : 1, transform: [{ scale: pressed ? 0.97 : 1 }] }]}
+          >
+            <Avatar user={friend.user} size={44} />
+            <View style={styles.rowInfo}>
+              <Text style={[styles.rowName, { color: textColor }]} numberOfLines={1}>
+                {friend.user.name}
+              </Text>
+              <Text style={[styles.rowMeta, { color: balance.color }]}>{balance.text}</Text>
+            </View>
+            <IconSymbol name="chevron.right" size={20} color={secondaryTextColor} />
+          </Pressable>
+        );
+      },
+      [handleContactPress, secondaryTextColor, textColor]
+    );
+
+    const renderOutstandingGroupRow = useCallback(
+      (group: GroupListItem) => {
+        const balance = getBalanceLabel(group.your_balance);
+        const searchGroup = groupListItemToSearchGroup(group);
+
+        return (
+          <Pressable
+            onPress={() => handleGroupPress(searchGroup)}
+            style={({ pressed }) => [styles.row, { opacity: pressed ? 0.75 : 1, transform: [{ scale: pressed ? 0.97 : 1 }] }]}
+          >
+            <Avatar group={searchGroup} size={44} />
+            <View style={styles.rowInfo}>
+              <Text style={[styles.rowName, { color: textColor }]} numberOfLines={1}>
+                {group.name}
+              </Text>
+              <Text style={[styles.rowMeta, { color: balance.color }]}>{balance.text}</Text>
+            </View>
+            <IconSymbol name="chevron.right" size={20} color={secondaryTextColor} />
+          </Pressable>
+        );
+      },
+      [handleGroupPress, secondaryTextColor, textColor]
+    );
+
+    const renderRecentRow = useCallback(
+      (target: RecentExpenseTarget) => (
+        <Pressable
+          onPress={() => handleRecentPress(target)}
+          style={({ pressed }) => [styles.row, { opacity: pressed ? 0.75 : 1, transform: [{ scale: pressed ? 0.97 : 1 }] }]}
+        >
+          <View style={[styles.recentIcon, { backgroundColor: colors.primary[100] }]}>
+            <IconSymbol
+              name={target.type === 'group' ? 'person.2.fill' : 'person'}
+              size={20}
+              color={colors.primary[500]}
+            />
+          </View>
+          <View style={styles.rowInfo}>
+            <Text style={[styles.rowName, { color: textColor }]} numberOfLines={1}>
+              {target.name}
+            </Text>
+            <Text style={[styles.rowMeta, { color: secondaryTextColor }]}>
+              {target.type === 'group' ? 'Group' : 'Friend'}
+            </Text>
+          </View>
+          <IconSymbol name="chevron.right" size={20} color={secondaryTextColor} />
+        </Pressable>
+      ),
+      [handleRecentPress, secondaryTextColor, textColor]
     );
 
     const renderContactRow = useCallback(
@@ -188,7 +423,7 @@ export const PeopleSearchSheet = forwardRef<BottomSheet, PeopleSearchSheetProps>
 
         return (
           <Pressable
-            onPress={() => onContactSelect(contact)}
+            onPress={() => handleContactPress(contact)}
             style={({ pressed }) => [
               styles.row,
               isMultiSelect && isSelected && { backgroundColor: colors.primary[500] + '14' },
@@ -214,16 +449,30 @@ export const PeopleSearchSheet = forwardRef<BottomSheet, PeopleSearchSheetProps>
           </Pressable>
         );
       },
-      [selectedIds, onContactSelect, textColor, secondaryTextColor]
+      [selectedIds, handleContactPress, textColor, secondaryTextColor]
     );
 
     const renderItem = useCallback(
       ({ item, index }: { item: ListItem; index: number }) => {
         if (item._type === 'sectionHeader') return renderSectionHeader(item.label);
         const delay = Math.min(index * 45, 280);
-        const row = item._type === 'group'
-          ? renderGroupRow(item.data)
-          : renderContactRow(item.data);
+        let row: ReactNode;
+        switch (item._type) {
+          case 'group':
+            row = renderGroupRow(item.data);
+            break;
+          case 'outstandingFriend':
+            row = renderOutstandingFriendRow(item.data);
+            break;
+          case 'outstandingGroup':
+            row = renderOutstandingGroupRow(item.data);
+            break;
+          case 'recent':
+            row = renderRecentRow(item.data);
+            break;
+          default:
+            row = renderContactRow(item.data);
+        }
         return (
           <MotiView
             from={{ opacity: 0, translateX: -14 }}
@@ -234,14 +483,36 @@ export const PeopleSearchSheet = forwardRef<BottomSheet, PeopleSearchSheetProps>
           </MotiView>
         );
       },
-      [renderSectionHeader, renderGroupRow, renderContactRow]
+      [
+        renderSectionHeader,
+        renderGroupRow,
+        renderContactRow,
+        renderOutstandingFriendRow,
+        renderOutstandingGroupRow,
+        renderRecentRow,
+      ]
     );
 
     const keyExtractor = useCallback((item: ListItem, index: number) => {
-      if (item._type === 'sectionHeader') return `header-${index}`;
+      if (item._type === 'sectionHeader') return `header-${item.label}-${index}`;
       if (item._type === 'group') return `group-${item.data.id}`;
+      if (item._type === 'outstandingFriend') return `outstanding-friend-${item.data.user.id}`;
+      if (item._type === 'outstandingGroup') return `outstanding-group-${item.data.id}`;
+      if (item._type === 'recent') return `recent-${item.data.type}-${item.data.id}`;
       return `contact-${item.data.id}`;
     }, []);
+
+    const handleSheetIndexChange = useCallback(
+      (index: number) => {
+        if (index >= 0 && autoFocusSearch) {
+          setShouldFocusSearch(true);
+        } else {
+          setShouldFocusSearch(false);
+        }
+        onSheetChange?.(index);
+      },
+      [autoFocusSearch, onSheetChange]
+    );
 
     // ── Render ────────────────────────────────────────────────────────────────
 
@@ -257,6 +528,7 @@ export const PeopleSearchSheet = forwardRef<BottomSheet, PeopleSearchSheetProps>
         backgroundStyle={{ backgroundColor: 'transparent' }}
         handleIndicatorStyle={{ backgroundColor: colors.gray[400] }}
         onClose={handleSheetClose}
+        onChange={handleSheetIndexChange}
         onAnimate={(fromIndex, toIndex) => {
           if (toIndex === -1) onStartClose?.();
         }}
@@ -291,6 +563,8 @@ export const PeopleSearchSheet = forwardRef<BottomSheet, PeopleSearchSheetProps>
           >
             <IconSymbol name="magnifyingglass" size={20} color={colors.gray[400]} />
             <BottomSheetTextInput
+              key={shouldFocusSearch ? 'search-focused' : 'search-idle'}
+              autoFocus={shouldFocusSearch}
               placeholder="Search by name or number..."
               placeholderTextColor={colors.gray[400]}
               value={searchQuery}
@@ -313,7 +587,9 @@ export const PeopleSearchSheet = forwardRef<BottomSheet, PeopleSearchSheetProps>
           <Text style={[styles.countLabel, { color: secondaryTextColor }]}>
             {searchQuery
               ? `${contactCount} ${contactCount === 1 ? 'result' : 'results'}`
-              : `All Contacts (${contacts.length})`}
+              : showRecentsTier
+                ? 'Recent, outstanding, and all contacts'
+                : `All Contacts (${contacts.length})`}
           </Text>
         )}
 
@@ -450,6 +726,13 @@ const styles = StyleSheet.create({
     fontSize: 13,
     marginTop: 2,
   } as TextStyle,
+  recentIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+  } as ViewStyle,
   stateContainer: {
     alignItems: 'center',
     justifyContent: 'center',

@@ -20,6 +20,7 @@ const STORAGE_KEYS = {
   CATEGORIES: 'settle:categories',
   FRIENDS: 'settle:friends',
   RECENT_ACTIVITY: 'settle:recent_activity',
+  RECENT_EXPENSE_TARGETS: 'settle:recent_expense_targets',
   
   // Dynamic cache keys (prefixes - append ID)
   GROUP_DETAIL_PREFIX: 'settle:group_detail:',
@@ -193,6 +194,16 @@ export const cache = {
   },
   async setRecentActivity<T>(activity: T[]) {
     return storage.set(STORAGE_KEYS.RECENT_ACTIVITY, activity);
+  },
+
+  // ============================================
+  // RECENT EXPENSE TARGETS (add sheet tier 2)
+  // ============================================
+  async getRecentExpenseTargets<T>(): Promise<T[]> {
+    return (await storage.get<T[]>(STORAGE_KEYS.RECENT_EXPENSE_TARGETS)) ?? [];
+  },
+  async setRecentExpenseTargets<T>(targets: T[]) {
+    return storage.set(STORAGE_KEYS.RECENT_EXPENSE_TARGETS, targets);
   },
 
   // ============================================

@@ -6,7 +6,8 @@
 export { useColorScheme } from './use-color-scheme';
 export { useAndroidChrome } from './use-android-chrome';
 export { usePlatformChrome } from './use-platform-chrome';
-export { useTabBarOffset } from './use-tab-bar-offset';
+export { useAddExpenseTargetActions } from './use-add-expense-target-actions';
+export { TAB_BAR_LAYOUT, useTabBarOffset } from './use-tab-bar-offset';
 export { useThemeColor } from './use-theme-color';
 
 // Network & Sync
@@ -23,7 +24,13 @@ export { useFriendDetail } from './use-friend-detail';
 export { useFriends } from './use-friends';
 export { useGroup } from './use-group';
 export { useGroups } from './use-groups';
+export {
+  useRecentExpenseTargets,
+  type RecentExpenseTarget,
+  type OutstandingTarget,
+} from './use-recent-expense-targets';
 export { useSettlements } from './use-settlements';
+export { useSettleTargets, sortSettleTargetsByAbsBalance, type SettleTarget } from './use-settle-targets';
 export { useUser } from './use-user';
 
 // Types for offline cache

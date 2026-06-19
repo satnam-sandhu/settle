@@ -35,21 +35,43 @@ export const EXPENSE_EVENTS = {
   ADD_EXPENSE_COMPLETED: 'add_expense_completed',
   ADD_EXPENSE_FAILED: 'add_expense_failed',
   ADD_EXPENSE_CANCELLED: 'add_expense_cancelled',
-  
+
   EXPENSE_VIEWED: 'expense_viewed',
   EXPENSE_EDITED: 'expense_edited',
   EXPENSE_DELETED: 'expense_deleted',
 } as const;
 
+/** Known entry_point values for add-expense analytics */
+export type AddExpenseEntryPoint =
+  | 'tab_plus'
+  | 'group'
+  | 'friend'
+  | 'friends_tab'
+  | 'home';
+
 // Settlement Events
 export const SETTLEMENT_EVENTS = {
   SETTLE_UP_STARTED: 'settle_up_started',
+  SETTLE_UP_SHEET_OPENED: 'settle_up_sheet_opened',
   SETTLE_UP_FRIEND_SELECTED: 'settle_up_friend_selected',
   SETTLE_UP_AMOUNT_ENTERED: 'settle_up_amount_entered',
   SETTLE_UP_COMPLETED: 'settle_up_completed',
   SETTLE_UP_FAILED: 'settle_up_failed',
   SETTLE_UP_CANCELLED: 'settle_up_cancelled',
 } as const;
+
+// Home Events
+export const HOME_EVENTS = {
+  SUMMARY_CARD_VIEWED: 'summary_card_viewed',
+} as const;
+
+// Add sheet events (global tab + picker)
+export const ADD_SHEET_EVENTS = {
+  ADD_SHEET_OPENED: 'add_sheet_opened',
+  ADD_SHEET_TARGET_SELECTED: 'add_sheet_target_selected',
+} as const;
+
+export type AddSheetEntryPoint = 'tab_plus' | 'friends_empty';
 
 // Group Events
 export const GROUP_EVENTS = {
@@ -78,8 +100,9 @@ export const NAV_EVENTS = {
   TAB_HOME_VIEWED: 'tab_home_viewed',
   TAB_GROUPS_VIEWED: 'tab_groups_viewed',
   TAB_FRIENDS_VIEWED: 'tab_friends_viewed',
-  TAB_PROFILE_VIEWED: 'tab_profile_viewed',
-  
+  TAB_ADD_TAPPED: 'tab_add_tapped',
+  PROFILE_OPENED: 'profile_opened',
+
   SCREEN_VIEWED: 'screen_viewed',
 } as const;
 

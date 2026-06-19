@@ -2,7 +2,7 @@
  * Settle Up Screen
  * 
  * Record a payment to settle debts with a friend.
- * Supports pre-filled amount from friend detail or search mode from home.
+ * Supports pre-filled amount from friend detail, home settle picker, or search mode.
  */
 
 import { IconSymbol } from '@/components/ui/icon-symbol';
@@ -30,6 +30,7 @@ import { useAuth } from '@/contexts/auth-context';
 import { useSync } from '@/contexts/sync-context';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useSettlements } from '@/hooks/use-settlements';
+import { sortSettleTargetsByAbsBalance, type SettleTarget } from '@/hooks/use-settle-targets';
 import { hapticLight, hapticSuccess, hapticWarning } from '@/lib/haptics';
 import { HeaderIconButton, NativeScreenHeader } from '@/lib/native-header';
 import { showPlatformAlert } from '@/lib/platform-picker';
@@ -39,12 +40,6 @@ import { SETTLEMENT_EVENTS } from '@/lib/analytics-events';
 import type { UserSummary } from '@/types';
 import { type CurrencyCode } from '@/types/database';
 
-interface SettleTarget {
-  user: UserSummary;
-  balance: number;
-  currency: CurrencyCode;
-}
-
 export default function SettleUpScreen() {
   const params = useLocalSearchParams<{
     friendId?: string;
@@ -52,6 +47,7 @@ export default function SettleUpScreen() {
     balance?: string;
     currency?: string;
     groupId?: string;
+    entry_point?: string;
   }>();
 
   const colorScheme = useColorScheme() ?? 'light';
@@ -74,7 +70,8 @@ export default function SettleUpScreen() {
 
   // Track screen view and settle up started
   useEffect(() => {
-    const entryPoint = params.friendId ? 'friend_detail' : 'home';
+    const entryPoint =
+      params.entry_point ?? (params.friendId ? 'friend_detail' : 'home_search');
     Analytics.trackScreen('settle_up', { entry_point: entryPoint });
     Analytics.track(SETTLEMENT_EVENTS.SETTLE_UP_STARTED, {
       entry_point: entryPoint,
@@ -215,9 +212,7 @@ export default function SettleUpScreen() {
       }
 
       // Sort by absolute balance (highest first)
-      results.sort((a, b) => Math.abs(b.balance) - Math.abs(a.balance));
-      
-      setSearchResults(results);
+      setSearchResults(sortSettleTargetsByAbsBalance(results));
     } catch (err) {
       console.error('[SettleUp] Search error:', err);
     } finally {
