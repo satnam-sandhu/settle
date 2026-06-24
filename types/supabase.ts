@@ -27,6 +27,11 @@ import type {
   DbSettlementInsert,
   DbUser,
   DbUserInsert,
+  DbNotificationDispatch,
+  DbNotificationDispatchRecipient,
+  DbUserPushToken,
+  DbUserPushTokenInsert,
+  DbUserPushTokenUpdate,
   DbUserUpdate,
   GroupMemberRole,
 } from './database';
@@ -68,6 +73,21 @@ export interface Database {
         Row: DbSettlement;
         Insert: DbSettlementInsert;
         Update: Partial<DbSettlementInsert>;
+      };
+      user_push_tokens: {
+        Row: DbUserPushToken;
+        Insert: DbUserPushTokenInsert;
+        Update: DbUserPushTokenUpdate;
+      };
+      notification_dispatches: {
+        Row: DbNotificationDispatch;
+        Insert: Partial<DbNotificationDispatch>;
+        Update: Partial<DbNotificationDispatch>;
+      };
+      notification_dispatch_recipients: {
+        Row: DbNotificationDispatchRecipient;
+        Insert: Partial<DbNotificationDispatchRecipient>;
+        Update: Partial<DbNotificationDispatchRecipient>;
       };
     };
     Views: {
@@ -126,6 +146,15 @@ export interface Database {
       cleanup_expired_otps: {
         Args: Record<string, never>;
         Returns: number;
+      };
+      register_push_token: {
+        Args: {
+          p_token: string;
+          p_platform: string;
+          p_app_version?: string | null;
+          p_device_name?: string | null;
+        };
+        Returns: void;
       };
     };
     Enums: {
