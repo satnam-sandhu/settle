@@ -19,16 +19,6 @@ Notifications.setNotificationHandler({
   }),
 });
 
-/**
- * Client push registration is on when EXPO_PUBLIC_NOTIFICATIONS_ENABLED is not "false".
- * Set to false in .env during local dev until you are testing on an EAS dev build.
- */
-export function isNotificationsEnabled(): boolean {
-  const flag = process.env.EXPO_PUBLIC_NOTIFICATIONS_ENABLED;
-  if (flag === 'false' || flag === '0') return false;
-  return true;
-}
-
 function getEasProjectId(): string | undefined {
   return (
     Constants.expoConfig?.extra?.eas?.projectId ??
@@ -48,10 +38,9 @@ async function ensureAndroidChannel(): Promise<void> {
 
 /**
  * Request OS permission, obtain Expo push token, and upsert into user_push_tokens.
- * Returns null when disabled, on simulator, permission denied, or on error.
+ * Returns null on simulator, permission denied, or on error.
  */
 export async function registerForPushNotificationsAsync(): Promise<string | null> {
-  if (!isNotificationsEnabled()) return null;
   if (!Device.isDevice) {
     if (__DEV__) {
       console.log('[Notifications] Push tokens require a physical device or dev build');

@@ -9,7 +9,6 @@ import { useEffect, useRef } from 'react';
 import { useAuth } from '@/contexts/auth-context';
 import {
   getDeepLinkFromNotification,
-  isNotificationsEnabled,
   registerForPushNotificationsAsync,
 } from '@/lib/notifications';
 
@@ -32,8 +31,6 @@ export function usePushNotifications(): void {
   const lastRegisteredUserId = useRef<string | null>(null);
 
   useEffect(() => {
-    if (!isNotificationsEnabled()) return;
-
     const receivedSub = Notifications.addNotificationReceivedListener(() => {
       // Foreground delivery — Realtime already refreshes data; no action required yet.
     });
@@ -56,7 +53,7 @@ export function usePushNotifications(): void {
   }, [router]);
 
   useEffect(() => {
-    if (!isNotificationsEnabled() || !user?.id) {
+    if (!user?.id) {
       lastRegisteredUserId.current = null;
       return;
     }
