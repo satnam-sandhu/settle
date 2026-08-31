@@ -14,6 +14,7 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   View
@@ -28,6 +29,11 @@ import { useSync } from '@/contexts/sync-context';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useUser } from '@/hooks/use-user';
 import { hapticLight, hapticSelection, hapticSuccess, hapticWarning } from '@/lib/haptics';
+import {
+  isPushNotificationsEnabled,
+  registerForPushNotificationsAsync,
+  unregisterForPushNotificationsAsync,
+} from '@/lib/notifications';
 import { NativeScreenHeader } from '@/lib/native-header';
 import { deleteImage, getPathFromUrl, pickImageFromCamera, pickImageFromLibrary, uploadAvatar } from '@/lib/image-upload';
 import {
@@ -49,10 +55,7 @@ export default function ProfileScreen() {
   const { 
     themeMode, 
     setThemeMode, 
-    defaultCurrency, 
-    setDefaultCurrency,
-    // notificationsEnabled,
-    // setNotificationsEnabled,
+    defaultCurrency,
   } = useSettings();
 
   // Edit mode state
@@ -300,10 +303,33 @@ export default function ProfileScreen() {
     // git history (commit before feat: expense screen redesign) when ready.
   };
 
-  // const handleNotificationToggle = async (value: boolean) => {
-  //   hapticLight();
-  //   await setNotificationsEnabled(value);
-  // };
+  const notificationsEnabled = user?.notifications_enabled !== false;
+
+  const handleNotificationToggle = async (value: boolean) => {
+    hapticLight();
+    if (!isOnline) {
+      showOfflineAlert('Connect to the internet to change notification settings.');
+      return;
+    }
+
+    if (value) {
+      const token = await registerForPushNotificationsAsync();
+      if (!token) {
+        showPlatformAlert(
+          'Notifications unavailable',
+          'Allow notifications in system settings, then try again. Remote push also needs a device with Google Play services.',
+        );
+        return;
+      }
+    } else {
+      await unregisterForPushNotificationsAsync();
+    }
+
+    const success = await updateUser({ notifications_enabled: value });
+    if (!success) {
+      showPlatformAlert('Could not save', 'Notification preference was not updated. Please try again.');
+    }
+  };
 
   const handleAbout = () => {
     hapticLight();
@@ -525,7 +551,6 @@ export default function ProfileScreen() {
             <Pressable 
               style={[
                 styles.settingItem, 
-                styles.settingItemLast,
                 { opacity: !isOnline ? 0.5 : 1 }
               ]}
               onPress={handleCurrencyChange}
@@ -547,23 +572,31 @@ export default function ProfileScreen() {
               </View>
             </Pressable>
 
-            {/* Notifications Toggle - Hidden until notifications are implemented */}
-            {/* <View style={[styles.settingItem, styles.settingItemLast]}>
-              <View style={styles.settingLeft}>
-                <View style={[styles.settingIcon, { backgroundColor: colors.warning + '20' }]}>
-                  <IconSymbol name="bell" size={20} color={colors.warning} />
+            {isPushNotificationsEnabled() ? (
+              <View
+                style={[
+                  styles.settingItem,
+                  styles.settingItemLast,
+                  { opacity: !isOnline ? 0.5 : 1 },
+                ]}
+              >
+                <View style={styles.settingLeft}>
+                  <View style={[styles.settingIcon, { backgroundColor: colors.warning + '20' }]}>
+                    <IconSymbol name="bell" size={20} color={colors.warning} />
+                  </View>
+                  <Text style={[styles.settingLabel, { color: textColor }]}>
+                    Notifications
+                  </Text>
                 </View>
-                <Text style={[styles.settingLabel, { color: textColor }]}>
-                  Notifications
-                </Text>
+                <Switch
+                  value={notificationsEnabled}
+                  onValueChange={handleNotificationToggle}
+                  disabled={!isOnline}
+                  trackColor={{ false: colors.gray[300], true: colors.primary[400] }}
+                  thumbColor={notificationsEnabled ? colors.primary[500] : colors.gray[100]}
+                />
               </View>
-              <Switch
-                value={notificationsEnabled}
-                onValueChange={handleNotificationToggle}
-                trackColor={{ false: colors.gray[300], true: colors.primary[400] }}
-                thumbColor={notificationsEnabled ? colors.primary[500] : colors.gray[100]}
-              />
-            </View> */}
+            ) : null}
           </MotiView>
 
           {/* About Section */}

@@ -7,9 +7,12 @@ import { useRouter } from 'expo-router';
 import { useEffect, useRef } from 'react';
 
 import { useAuth } from '@/contexts/auth-context';
+import { useUser } from '@/hooks/use-user';
 import {
   getDeepLinkFromNotification,
+  isPushNotificationsEnabled,
   registerForPushNotificationsAsync,
+  unregisterForPushNotificationsAsync,
 } from '@/lib/notifications';
 
 function navigateFromNotificationData(
@@ -28,9 +31,12 @@ function navigateFromNotificationData(
 export function usePushNotifications(): void {
   const router = useRouter();
   const { user } = useAuth();
-  const lastRegisteredUserId = useRef<string | null>(null);
+  const { user: profile } = useUser();
+  const lastSyncKey = useRef<string | null>(null);
 
   useEffect(() => {
+    if (!isPushNotificationsEnabled()) return;
+
     const receivedSub = Notifications.addNotificationReceivedListener(() => {
       // Foreground delivery — Realtime already refreshes data; no action required yet.
     });
@@ -53,17 +59,31 @@ export function usePushNotifications(): void {
   }, [router]);
 
   useEffect(() => {
+    if (!isPushNotificationsEnabled()) return;
+
     if (!user?.id) {
-      lastRegisteredUserId.current = null;
+      lastSyncKey.current = null;
       return;
     }
 
-    if (lastRegisteredUserId.current === user.id) return;
-    lastRegisteredUserId.current = user.id;
+    if (!profile) return;
+
+    const optedIn = profile.notifications_enabled !== false;
+    const syncKey = `${user.id}:${optedIn ? 'on' : 'off'}`;
+    if (lastSyncKey.current === syncKey) return;
+    lastSyncKey.current = syncKey;
+
+    if (!optedIn) {
+      unregisterForPushNotificationsAsync().catch((error) => {
+        console.error('[Notifications] Unregister failed:', error);
+        lastSyncKey.current = null;
+      });
+      return;
+    }
 
     registerForPushNotificationsAsync().catch((error) => {
       console.error('[Notifications] Registration failed:', error);
-      lastRegisteredUserId.current = null;
+      lastSyncKey.current = null;
     });
-  }, [user?.id]);
+  }, [user?.id, profile, profile?.notifications_enabled]);
 }

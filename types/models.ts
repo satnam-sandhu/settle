@@ -151,6 +151,10 @@ export interface GroupedExpenseLine {
   splits: ExpenseSplitInfo[];
   /** Optional notes for this line. */
   notes?: string | null;
+  paid_by: string;
+  paid_by_user: UserSummary;
+  category_id: string | null;
+  category: DbCategory | null;
 }
 
 /**
@@ -334,6 +338,10 @@ export interface GroupedExpenseLineForm {
   split_between: string[];
   /** Optional notes for this line. */
   notes?: string;
+  /** Who paid this line; falls back to parent paid_by if omitted. */
+  paid_by: string;
+  /** Category for this line; null means none. */
+  category_id: string | null;
 }
 
 /**
@@ -341,11 +349,13 @@ export interface GroupedExpenseLineForm {
  */
 export interface GroupedExpenseFormData {
   description: string;
+  /** Denormalized from the first line (list/header). */
   category_id: string | null;
+  /** Denormalized from the first line (list/header). */
   paid_by: string;
   currency: CurrencyCode;
   expense_date: Date;
-  /** At least 2 lines; each has description, amount, split_between. */
+  /** At least 1 line; each has description, amount, split_between, paid_by, category_id. */
   lines: GroupedExpenseLineForm[];
 }
 

@@ -28,8 +28,7 @@
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": true,
-      "package": "com.satnamsandhu.settle",
-      "versionCode": 1
+      "package": "com.satnamsandhu.settle"
     },
     "plugins": [
       "expo-router",

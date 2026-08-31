@@ -10,6 +10,16 @@ import { Platform } from 'react-native';
 
 import { supabase } from '@/lib/supabase';
 
+/**
+ * Client kill-switch. Off only when explicitly set to "false" / "0".
+ * Default is on so production and local builds send unless you opt out.
+ */
+export function isPushNotificationsEnabled(): boolean {
+  const flag = process.env.EXPO_PUBLIC_NOTIFICATIONS_ENABLED;
+  if (flag === 'false' || flag === '0') return false;
+  return true;
+}
+
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
     shouldPlaySound: true,
@@ -38,12 +48,15 @@ async function ensureAndroidChannel(): Promise<void> {
 
 /**
  * Request OS permission, obtain Expo push token, and upsert into user_push_tokens.
- * Returns null on simulator, permission denied, or on error.
+ * Returns null on iOS simulator, permission denied, or on error.
+ * Android emulators with Google Play can still obtain an FCM token.
  */
 export async function registerForPushNotificationsAsync(): Promise<string | null> {
-  if (!Device.isDevice) {
+  if (!isPushNotificationsEnabled()) return null;
+
+  if (Platform.OS === 'ios' && !Device.isDevice) {
     if (__DEV__) {
-      console.log('[Notifications] Push tokens require a physical device or dev build');
+      console.log('[Notifications] Remote push is skipped on iOS Simulator');
     }
     return null;
   }
@@ -107,6 +120,36 @@ async function persistPushToken(token: string): Promise<boolean> {
   }
 
   return true;
+}
+
+/**
+ * Remove this install's Expo push token so the device stops receiving remote push.
+ */
+export async function unregisterForPushNotificationsAsync(): Promise<void> {
+  if (Platform.OS !== 'ios' && Platform.OS !== 'android') return;
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return;
+
+  const projectId = getEasProjectId();
+  if (!projectId) return;
+
+  try {
+    const token = (await Notifications.getExpoPushTokenAsync({ projectId })).data;
+    const { error } = await supabase
+      .from('user_push_tokens')
+      .delete()
+      .eq('user_id', user.id)
+      .eq('token', token);
+
+    if (error) {
+      console.error('[Notifications] Failed to remove push token:', error.message);
+    }
+  } catch (error) {
+    console.error('[Notifications] Failed to unregister push token:', error);
+  }
 }
 
 export type NotificationDeepLink = {

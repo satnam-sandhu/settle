@@ -54,7 +54,7 @@ import { hapticHeavy, hapticSelection, hapticSuccess, hapticWarning } from '@/li
 import { HeaderSaveButton, NativeScreenHeader } from '@/lib/native-header';
 import { showPlatformAlert } from '@/lib/platform-picker';
 import { supabase } from '@/lib/supabase';
-import type { CurrencyCode, DbCategory, ExpenseFormData, GroupMember, SplitType } from '@/types';
+import type { CurrencyCode, DbCategory, ExpenseFormData, GroupedExpenseFormData, GroupMember, SplitType } from '@/types';
 import { CURRENCIES } from '@/types/database';
 
 function resolveAddExpenseEntryPoint(params: {
@@ -66,6 +66,35 @@ function resolveAddExpenseEntryPoint(params: {
   if (params.groupId) return 'group';
   if (params.friendId) return 'friend';
   return 'home';
+}
+
+type ExtraLineDraft = {
+  description: string;
+  amount: string;
+  splitBetween: string[];
+  notes: string;
+  paidBy: string;
+  category: DbCategory | null;
+};
+
+type PickerLineTarget = 'main' | number;
+
+function toGroupedLineForm(
+  description: string,
+  amount: string,
+  splitBetween: string[],
+  notes: string,
+  paidBy: string,
+  category: DbCategory | null
+): GroupedExpenseFormData['lines'][number] {
+  return {
+    description: description.trim(),
+    amount: parseFloat(amount),
+    split_between: splitBetween,
+    notes: notes.trim() || undefined,
+    paid_by: paidBy,
+    category_id: category?.id || null,
+  };
 }
 
 export default function AddExpenseScreen() {
@@ -163,7 +192,7 @@ export default function AddExpenseScreen() {
   // Grouped expense: parent description (top-level when 2+ parts); description = Part 1 only when grouped
   const [groupDescription, setGroupDescription] = useState('');
   // Grouped expense: additional lines (when length >= 1 we create a grouped expense)
-  const [extraLines, setExtraLines] = useState<Array<{ description: string; amount: string; splitBetween: string[]; notes: string }>>([]);
+  const [extraLines, setExtraLines] = useState<ExtraLineDraft[]>([]);
 
   // Picker sheet state — mount BottomSheet only while open or opening; unmount when closed
   // so index=-1 never blocks touches on Android (@gorhom/bottom-sheet).
@@ -197,14 +226,14 @@ export default function AddExpenseScreen() {
     if (!isEditModeGrouped || !expenseGroup || hasPrefilledFromGroup) return;
     const { group: eg, lines } = expenseGroup;
     setGroupDescription(eg.description);
-    setSelectedCategory(eg.category);
-    setPaidBy(eg.paid_by);
     setCurrency((lines[0]?.currency ?? 'INR') as CurrencyCode);
     if (lines.length > 0) {
       setDescription(lines[0].description);
       setAmount(lines[0].amount.toString());
       setSplitBetween(lines[0].splits.map((s) => s.user_id));
       setNotes(lines[0].notes ?? '');
+      setPaidBy(lines[0].paid_by ?? eg.paid_by);
+      setSelectedCategory(lines[0].category ?? eg.category);
       if (lines.length > 1) {
         setExtraLines(
           lines.slice(1).map((l) => ({
@@ -212,9 +241,14 @@ export default function AddExpenseScreen() {
             amount: l.amount.toString(),
             splitBetween: l.splits.map((s) => s.user_id),
             notes: l.notes ?? '',
+            paidBy: l.paid_by ?? eg.paid_by,
+            category: l.category ?? null,
           }))
         );
       }
+    } else {
+      setPaidBy(eg.paid_by);
+      setSelectedCategory(eg.category);
     }
     setHasPrefilledFromGroup(true);
   }, [isEditModeGrouped, expenseGroup, hasPrefilledFromGroup]);
@@ -345,10 +379,23 @@ export default function AddExpenseScreen() {
     // Value in main description becomes Part 1; parent/group description gets that value so both are set
     setGroupDescription((prev) => prev || description);
     const defaultSplit = group?.members?.map((m) => m.user_id) ?? (user ? [user.id] : []);
-    setExtraLines((prev) => [...prev, { description: '', amount: '', splitBetween: defaultSplit, notes: '' }]);
-  }, [group?.members, user, description]);
+    setExtraLines((prev) => {
+      const last = prev[prev.length - 1];
+      return [
+        ...prev,
+        {
+          description: '',
+          amount: '',
+          splitBetween: defaultSplit,
+          notes: '',
+          paidBy: last?.paidBy || paidBy,
+          category: last?.category !== undefined ? last.category : selectedCategory,
+        },
+      ];
+    });
+  }, [group?.members, user, description, paidBy, selectedCategory]);
 
-  const updateExtraLine = useCallback((index: number, updates: Partial<{ description: string; amount: string; splitBetween: string[]; notes: string }>) => {
+  const updateExtraLine = useCallback((index: number, updates: Partial<ExtraLineDraft>) => {
     setExtraLines((prev) => {
       const next = [...prev];
       next[index] = { ...next[index], ...updates };
@@ -370,6 +417,8 @@ export default function AddExpenseScreen() {
     setAmount(first.amount);
     setSplitBetween(first.splitBetween);
     setNotes(first.notes ?? '');
+    setPaidBy(first.paidBy);
+    setSelectedCategory(first.category);
     setExtraLines((prev) => prev.slice(1));
   }, [extraLines]);
 
@@ -386,7 +435,7 @@ export default function AddExpenseScreen() {
           hapticWarning();
           return prev;
         }
-        if (newList.length === 1 && newList[0] === paidBy) {
+        if (newList.length === 1 && newList[0] === line.paidBy) {
           hapticWarning();
           return prev;
         }
@@ -400,15 +449,17 @@ export default function AddExpenseScreen() {
       next[lineIndex] = { ...line, splitBetween: [...line.splitBetween, userId] };
       return next;
     });
-  }, [paidBy]);
+  }, []);
 
   // Keep a ref in sync with activeSheet so the sheet content renders
   // immediately from the ref even before React's async state update commits.
   const activeSheetRef = useRef<'currency' | 'category' | 'paidBy' | null>(null);
+  const pickerLineTargetRef = useRef<PickerLineTarget>('main');
 
-  const openSheet = useCallback((type: 'currency' | 'category' | 'paidBy') => {
+  const openSheet = useCallback((type: 'currency' | 'category' | 'paidBy', lineTarget: PickerLineTarget = 'main') => {
     Keyboard.dismiss();
     hapticSelection();
+    pickerLineTargetRef.current = lineTarget;
     activeSheetRef.current = type;
     setActiveSheet(type);
     setPickerSheetMounted(true);
@@ -417,6 +468,18 @@ export default function AddExpenseScreen() {
   const closeSheet = useCallback(() => {
     pickerSheetRef.current?.close();
   }, []);
+
+  const applyPickerCategory = useCallback((cat: DbCategory | null) => {
+    const target = pickerLineTargetRef.current;
+    if (target === 'main') setSelectedCategory(cat);
+    else updateExtraLine(target, { category: cat });
+  }, [updateExtraLine]);
+
+  const applyPickerPaidBy = useCallback((userId: string) => {
+    const target = pickerLineTargetRef.current;
+    if (target === 'main') setPaidBy(userId);
+    else updateExtraLine(target, { paidBy: userId });
+  }, [updateExtraLine]);
 
   // Open picker after mount so the BottomSheet ref exists (first open + remount after unmount).
   useEffect(() => {
@@ -476,8 +539,9 @@ export default function AddExpenseScreen() {
         if (!line.description.trim()) newErrors[`extraDesc_${idx}`] = `Part ${partNum(idx)} description is required`;
         const lineAmt = parseFloat(line.amount);
         if (!line.amount || isNaN(lineAmt) || lineAmt <= 0) newErrors[`extraAmount_${idx}`] = `Part ${partNum(idx)} amount is required`;
+        if (!line.paidBy) newErrors[`extraPaidBy_${idx}`] = `Part ${partNum(idx)}: select who paid`;
         if (line.splitBetween.length === 0) newErrors[`extraSplit_${idx}`] = `Part ${partNum(idx)}: select at least one person to split with`;
-        else if (line.splitBetween.length === 1 && line.splitBetween[0] === paidBy)
+        else if (line.splitBetween.length === 1 && line.splitBetween[0] === line.paidBy)
           newErrors[`extraSplit_${idx}`] = `Part ${partNum(idx)}: the person who paid cannot be the only one in the split`;
       });
     }
@@ -522,20 +586,15 @@ export default function AddExpenseScreen() {
 
     // ---------- EDIT MODE (grouped expense, 2+ parts) ----------
     if (isEditModeGrouped && params.expenseGroupId && extraLines.length >= 1) {
-      const groupedFormData = {
+      const groupedFormData: GroupedExpenseFormData = {
         description: groupDescription.trim(),
         category_id: selectedCategory?.id || null,
         paid_by: paidBy,
         currency,
         expense_date: new Date(),
         lines: [
-          { description: description.trim(), amount: parseFloat(amount), split_between: splitBetween, notes: notes.trim() || undefined },
-          ...extraLines.map((l) => ({
-            description: l.description.trim(),
-            amount: parseFloat(l.amount),
-            split_between: l.splitBetween,
-            notes: l.notes?.trim() || undefined,
-          })),
+          toGroupedLineForm(description, amount, splitBetween, notes, paidBy, selectedCategory),
+          ...extraLines.map((l) => toGroupedLineForm(l.description, l.amount, l.splitBetween, l.notes ?? '', l.paidBy, l.category)),
         ],
       };
       const success = await updateGroupedExpense(params.expenseGroupId, groupedFormData);
@@ -553,14 +612,14 @@ export default function AddExpenseScreen() {
     // ---------- EDIT MODE (grouped expense, user removed to 1 part → update group in place, keep 1 line) ----------
     // Grouped-by-default: we never create a standalone expense; the expense_group stays with one child.
     if (isEditModeGrouped && params.expenseGroupId && extraLines.length === 0) {
-      const groupedFormData = {
+      const groupedFormData: GroupedExpenseFormData = {
         description: groupDescription.trim() || description.trim(),
         category_id: selectedCategory?.id || null,
         paid_by: paidBy,
         currency,
         expense_date: new Date(),
         lines: [
-          { description: description.trim(), amount: parseFloat(amount), split_between: splitBetween, notes: notes.trim() || undefined },
+          toGroupedLineForm(description, amount, splitBetween, notes, paidBy, selectedCategory),
         ],
       };
       const success = await updateGroupedExpense(params.expenseGroupId, groupedFormData);
@@ -608,7 +667,7 @@ export default function AddExpenseScreen() {
         return;
       }
       // Grouped-by-default: always create via createGroupedExpense (1 or more lines). When 2+ parts, parent = groupDescription.
-      const groupedFormData = {
+      const groupedFormData: GroupedExpenseFormData = {
         description: extraLines.length >= 1 ? groupDescription.trim() : description.trim(),
         category_id: selectedCategory?.id || null,
         paid_by: paidBy || user!.id,
@@ -617,10 +676,10 @@ export default function AddExpenseScreen() {
         lines:
           extraLines.length >= 1
             ? [
-                { description: description.trim(), amount: parseFloat(amount), split_between: splitBetween, notes: notes.trim() || undefined },
-                ...extraLines.map((l) => ({ description: l.description.trim(), amount: parseFloat(l.amount), split_between: l.splitBetween, notes: l.notes?.trim() || undefined })),
+                toGroupedLineForm(description, amount, splitBetween, notes, paidBy || user!.id, selectedCategory),
+                ...extraLines.map((l) => toGroupedLineForm(l.description, l.amount, l.splitBetween, l.notes ?? '', l.paidBy || user!.id, l.category)),
               ]
-            : [{ description: description.trim(), amount: parseFloat(amount), split_between: splitBetween, notes: notes.trim() || undefined }],
+            : [toGroupedLineForm(description, amount, splitBetween, notes, paidBy || user!.id, selectedCategory)],
       };
       const groupId = await createGroupedExpense(groupedFormData, directGroupId);
       setIsSubmitting(false);
@@ -646,7 +705,7 @@ export default function AddExpenseScreen() {
     }
 
     // Normal group path (or direct with resolvedGroupId). When 2+ parts, parent = groupDescription.
-    const groupedFormData = {
+    const groupedFormData: GroupedExpenseFormData = {
       description: extraLines.length >= 1 ? groupDescription.trim() : description.trim(),
       category_id: selectedCategory?.id || null,
       paid_by: paidBy,
@@ -655,10 +714,10 @@ export default function AddExpenseScreen() {
       lines:
         extraLines.length >= 1
           ? [
-              { description: description.trim(), amount: parseFloat(amount), split_between: splitBetween, notes: notes.trim() || undefined },
-              ...extraLines.map((l) => ({ description: l.description.trim(), amount: parseFloat(l.amount), split_between: l.splitBetween, notes: l.notes?.trim() || undefined })),
+              toGroupedLineForm(description, amount, splitBetween, notes, paidBy, selectedCategory),
+              ...extraLines.map((l) => toGroupedLineForm(l.description, l.amount, l.splitBetween, l.notes ?? '', l.paidBy, l.category)),
             ]
-          : [{ description: description.trim(), amount: parseFloat(amount), split_between: splitBetween, notes: notes.trim() || undefined }],
+          : [toGroupedLineForm(description, amount, splitBetween, notes, paidBy, selectedCategory)],
     };
     const groupId = await createGroupedExpense(groupedFormData, resolvedGroupId);
     setIsSubmitting(false);
@@ -985,71 +1044,6 @@ export default function AddExpenseScreen() {
                     {errors.groupDescription ? <Text style={styles.errorMessage}>{errors.groupDescription}</Text> : null}
                   </MotiView>
 
-                  <MotiView
-                    from={{ opacity: 0, translateY: 10 }}
-                    animate={{ opacity: 1, translateY: 0 }}
-                    transition={{ type: 'spring', damping: 20, stiffness: 200, delay: 95 }}
-                    style={styles.section}
-                  >
-                    <Text style={[styles.sectionLabel, { color: secondaryTextColor }]}>CATEGORY</Text>
-                    <Pressable
-                      onPress={() => openSheet('category')}
-                      style={[styles.selectorRow, { backgroundColor: cardBg, borderColor }]}
-                    >
-                      {selectedCategory ? (
-                        <View style={styles.selectorLeft}>
-                          <Text style={styles.categoryTileEmoji}>{selectedCategory.icon}</Text>
-                          <Text style={[styles.selectorValue, { color: textColor, marginLeft: 10 }]}>{selectedCategory.name}</Text>
-                        </View>
-                      ) : (
-                        <View style={styles.selectorLeft}>
-                          <View style={[styles.selectorIconWrap, { backgroundColor: borderColor }]}>
-                            <IconSymbol name="square.grid.2x2" size={16} color={secondaryTextColor} />
-                          </View>
-                          <Text style={[styles.selectorPlaceholder, { color: secondaryTextColor }]}>
-                            Choose category
-                          </Text>
-                        </View>
-                      )}
-                      <IconSymbol name="chevron.down" size={18} color={secondaryTextColor} />
-                    </Pressable>
-                  </MotiView>
-
-                  <MotiView
-                    from={{ opacity: 0, translateY: 10 }}
-                    animate={{ opacity: 1, translateY: 0 }}
-                    transition={{ type: 'spring', damping: 20, stiffness: 200, delay: 120 }}
-                    style={styles.section}
-                  >
-                    <Text style={[styles.sectionLabel, { color: secondaryTextColor }]}>PAID BY</Text>
-                    <Pressable
-                      onPress={() => openSheet('paidBy')}
-                      style={[styles.selectorRow, { backgroundColor: cardBg, borderColor }]}
-                    >
-                      {paidBy ? (
-                        <View style={styles.selectorLeft}>
-                          {getMember(paidBy) && (
-                            <Avatar user={getMember(paidBy)!.user} size={30} style={{ marginRight: 10 }} />
-                          )}
-                          <Text style={[styles.selectorValue, { color: textColor }]}>
-                            {paidBy === user?.id ? 'You' : getMember(paidBy)?.user.name || 'Unknown'}
-                          </Text>
-                        </View>
-                      ) : (
-                        <View style={styles.selectorLeft}>
-                          <View style={[styles.selectorIconWrap, { backgroundColor: borderColor }]}>
-                            <IconSymbol name="person" size={16} color={secondaryTextColor} />
-                          </View>
-                          <Text style={[styles.selectorPlaceholder, { color: secondaryTextColor }]}>
-                            Who paid?
-                          </Text>
-                        </View>
-                      )}
-                      <IconSymbol name="chevron.down" size={18} color={secondaryTextColor} />
-                    </Pressable>
-                    {errors.paidBy ? <Text style={styles.errorMessage}>{errors.paidBy}</Text> : null}
-                  </MotiView>
-
                   {/* Total band (separate from Part 1) */}
                   <MotiView
                     from={{ opacity: 0, translateY: 10 }}
@@ -1109,6 +1103,55 @@ export default function AddExpenseScreen() {
                       />
                     </View>
                     {errors.amount ? <Text style={styles.errorMessage}>{errors.amount}</Text> : null}
+                    <Text style={[styles.sectionLabel, { color: secondaryTextColor, marginTop: 12 }]}>CATEGORY</Text>
+                    <Pressable
+                      onPress={() => openSheet('category', 'main')}
+                      style={[styles.selectorRow, { backgroundColor: isDark ? colors.gray[800] : colors.gray[50], borderColor }]}
+                    >
+                      {selectedCategory ? (
+                        <View style={styles.selectorLeft}>
+                          <Text style={styles.categoryTileEmoji}>{selectedCategory.icon}</Text>
+                          <Text style={[styles.selectorValue, { color: textColor, marginLeft: 10 }]}>{selectedCategory.name}</Text>
+                        </View>
+                      ) : (
+                        <View style={styles.selectorLeft}>
+                          <View style={[styles.selectorIconWrap, { backgroundColor: borderColor }]}>
+                            <IconSymbol name="square.grid.2x2" size={16} color={secondaryTextColor} />
+                          </View>
+                          <Text style={[styles.selectorPlaceholder, { color: secondaryTextColor }]}>
+                            Choose category
+                          </Text>
+                        </View>
+                      )}
+                      <IconSymbol name="chevron.down" size={18} color={secondaryTextColor} />
+                    </Pressable>
+                    <Text style={[styles.sectionLabel, { color: secondaryTextColor, marginTop: 12 }]}>PAID BY</Text>
+                    <Pressable
+                      onPress={() => openSheet('paidBy', 'main')}
+                      style={[styles.selectorRow, { backgroundColor: isDark ? colors.gray[800] : colors.gray[50], borderColor }]}
+                    >
+                      {paidBy ? (
+                        <View style={styles.selectorLeft}>
+                          {getMember(paidBy) && (
+                            <Avatar user={getMember(paidBy)!.user} size={30} style={{ marginRight: 10 }} />
+                          )}
+                          <Text style={[styles.selectorValue, { color: textColor }]}>
+                            {paidBy === user?.id ? 'You' : getMember(paidBy)?.user.name || 'Unknown'}
+                          </Text>
+                        </View>
+                      ) : (
+                        <View style={styles.selectorLeft}>
+                          <View style={[styles.selectorIconWrap, { backgroundColor: borderColor }]}>
+                            <IconSymbol name="person" size={16} color={secondaryTextColor} />
+                          </View>
+                          <Text style={[styles.selectorPlaceholder, { color: secondaryTextColor }]}>
+                            Who paid?
+                          </Text>
+                        </View>
+                      )}
+                      <IconSymbol name="chevron.down" size={18} color={secondaryTextColor} />
+                    </Pressable>
+                    {errors.paidBy ? <Text style={styles.errorMessage}>{errors.paidBy}</Text> : null}
                     <Text style={[styles.sectionLabel, { color: secondaryTextColor, marginTop: 12 }]}>
                       SPLIT BETWEEN{splitBetween.length > 0 ? ` · ${splitBetween.length} ${splitBetween.length === 1 ? 'person' : 'people'}` : ''}
                     </Text>
@@ -1210,6 +1253,55 @@ export default function AddExpenseScreen() {
                     />
                   </View>
                   {errors[`extraAmount_${idx}`] ? <Text style={styles.errorMessage}>{errors[`extraAmount_${idx}`]}</Text> : null}
+                  <Text style={[styles.sectionLabel, { color: secondaryTextColor, marginTop: 12 }]}>CATEGORY</Text>
+                  <Pressable
+                    onPress={() => openSheet('category', idx)}
+                    style={[styles.selectorRow, { backgroundColor: isDark ? colors.gray[800] : colors.gray[50], borderColor }]}
+                  >
+                    {line.category ? (
+                      <View style={styles.selectorLeft}>
+                        <Text style={styles.categoryTileEmoji}>{line.category.icon}</Text>
+                        <Text style={[styles.selectorValue, { color: textColor, marginLeft: 10 }]}>{line.category.name}</Text>
+                      </View>
+                    ) : (
+                      <View style={styles.selectorLeft}>
+                        <View style={[styles.selectorIconWrap, { backgroundColor: borderColor }]}>
+                          <IconSymbol name="square.grid.2x2" size={16} color={secondaryTextColor} />
+                        </View>
+                        <Text style={[styles.selectorPlaceholder, { color: secondaryTextColor }]}>
+                          Choose category
+                        </Text>
+                      </View>
+                    )}
+                    <IconSymbol name="chevron.down" size={18} color={secondaryTextColor} />
+                  </Pressable>
+                  <Text style={[styles.sectionLabel, { color: secondaryTextColor, marginTop: 12 }]}>PAID BY</Text>
+                  <Pressable
+                    onPress={() => openSheet('paidBy', idx)}
+                    style={[styles.selectorRow, { backgroundColor: isDark ? colors.gray[800] : colors.gray[50], borderColor }]}
+                  >
+                    {line.paidBy ? (
+                      <View style={styles.selectorLeft}>
+                        {getMember(line.paidBy) && (
+                          <Avatar user={getMember(line.paidBy)!.user} size={30} style={{ marginRight: 10 }} />
+                        )}
+                        <Text style={[styles.selectorValue, { color: textColor }]}>
+                          {line.paidBy === user?.id ? 'You' : getMember(line.paidBy)?.user.name || 'Unknown'}
+                        </Text>
+                      </View>
+                    ) : (
+                      <View style={styles.selectorLeft}>
+                        <View style={[styles.selectorIconWrap, { backgroundColor: borderColor }]}>
+                          <IconSymbol name="person" size={16} color={secondaryTextColor} />
+                        </View>
+                        <Text style={[styles.selectorPlaceholder, { color: secondaryTextColor }]}>
+                          Who paid?
+                        </Text>
+                      </View>
+                    )}
+                    <IconSymbol name="chevron.down" size={18} color={secondaryTextColor} />
+                  </Pressable>
+                  {errors[`extraPaidBy_${idx}`] ? <Text style={styles.errorMessage}>{errors[`extraPaidBy_${idx}`]}</Text> : null}
                   <Text style={[styles.sectionLabel, { color: secondaryTextColor, marginTop: 12 }]}>
                     SPLIT BETWEEN{line.splitBetween.length > 0 ? ` · ${line.splitBetween.length} ${line.splitBetween.length === 1 ? 'person' : 'people'}` : ''}
                   </Text>
@@ -1399,55 +1491,66 @@ export default function AddExpenseScreen() {
                 <Pressable
                   style={({ pressed }) => [
                     styles.categorySheetItem,
-                    !selectedCategory && { backgroundColor: colors.gray[500] + '20', borderColor: colors.gray[400] },
+                    !(pickerLineTargetRef.current === 'main' ? selectedCategory : extraLines[pickerLineTargetRef.current]?.category) && { backgroundColor: colors.gray[500] + '20', borderColor: colors.gray[400] },
                     { opacity: pressed ? 0.75 : 1 },
                   ]}
-                  onPress={() => { hapticSelection(); setSelectedCategory(null); closeSheet(); }}
+                  onPress={() => { hapticSelection(); applyPickerCategory(null); closeSheet(); }}
                 >
                   <Text style={[styles.categorySheetEmoji, { color: secondaryTextColor }]}>—</Text>
                   <Text
-                    style={[styles.categorySheetName, { color: !selectedCategory ? secondaryTextColor : textColor }]}
+                    style={[styles.categorySheetName, { color: secondaryTextColor }]}
                     numberOfLines={1}
                   >
                     None
                   </Text>
                 </Pressable>
-                {categories.map((cat) => (
+                {categories.map((cat) => {
+                  const activeCat = pickerLineTargetRef.current === 'main'
+                    ? selectedCategory
+                    : extraLines[pickerLineTargetRef.current]?.category;
+                  const isActive = activeCat?.id === cat.id;
+                  return (
                   <Pressable
                     key={cat.id}
                     style={({ pressed }) => [
                       styles.categorySheetItem,
-                      selectedCategory?.id === cat.id && { backgroundColor: cat.color + '20', borderColor: cat.color },
+                      isActive && { backgroundColor: cat.color + '20', borderColor: cat.color },
                       { opacity: pressed ? 0.75 : 1, transform: [{ scale: pressed ? 0.95 : 1 }] },
                     ]}
-                    onPress={() => { hapticSelection(); setSelectedCategory(cat); closeSheet(); }}
+                    onPress={() => { hapticSelection(); applyPickerCategory(cat); closeSheet(); }}
                   >
                     <Text style={styles.categorySheetEmoji}>{cat.icon}</Text>
                     <Text
                       style={[
                         styles.categorySheetName,
-                        { color: selectedCategory?.id === cat.id ? cat.color : textColor },
+                        { color: isActive ? cat.color : textColor },
                       ]}
                       numberOfLines={1}
                     >
                       {cat.name}
                     </Text>
                   </Pressable>
-                ))}
+                  );
+                })}
               </View>
             )}
 
             {/* Paid by member list */}
-            {(activeSheet ?? activeSheetRef.current) === 'paidBy' && group && group.members.map((member) => (
+            {(activeSheet ?? activeSheetRef.current) === 'paidBy' && group && group.members.map((member) => {
+              const activePaidBy = pickerLineTargetRef.current === 'main'
+                ? paidBy
+                : extraLines[pickerLineTargetRef.current]?.paidBy;
+              const isActive = activePaidBy === member.user_id;
+              return (
               <Pressable
                 key={member.user_id}
                 style={({ pressed }) => [
                   styles.sheetItem,
                   { borderBottomColor: borderColor },
-                  paidBy === member.user_id && { backgroundColor: colors.primary[500] + '22', borderRadius: 10 },
+                  isActive && { backgroundColor: colors.primary[500] + '22', borderRadius: 10 },
                   { opacity: pressed ? 0.8 : 1 },
                 ]}
-                onPress={() => { hapticSelection(); setPaidBy(member.user_id); closeSheet(); }}
+                onPress={() => { hapticSelection(); applyPickerPaidBy(member.user_id); closeSheet(); }}
               >
                 <View style={styles.sheetItemLeft}>
                   <Avatar user={member.user} size={36} style={{ marginRight: 12 }} />
@@ -1455,9 +1558,10 @@ export default function AddExpenseScreen() {
                     {member.user_id === user?.id ? 'You' : member.user.name}
                   </Text>
                 </View>
-                {paidBy === member.user_id && <IconSymbol name="checkmark" size={18} color={colors.primary[500]} />}
+                {isActive && <IconSymbol name="checkmark" size={18} color={colors.primary[500]} />}
               </Pressable>
-            ))}
+              );
+            })}
           </BottomSheetScrollView>
         </BottomSheet>
         )}

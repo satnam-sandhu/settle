@@ -426,6 +426,8 @@ export function useExpenses(groupId: string | undefined): UseExpensesResult {
         amount: line.amount,
         split_between: line.split_between,
         notes: line.notes?.trim() || undefined,
+        paid_by: line.paid_by,
+        category_id: line.category_id,
       }));
 
       const { data: expenseGroupId, error } = await supabase.rpc('create_grouped_expense', {
@@ -460,6 +462,8 @@ export function useExpenses(groupId: string | undefined): UseExpensesResult {
         amount: line.amount,
         split_between: line.split_between,
         notes: line.notes?.trim() || undefined,
+        paid_by: line.paid_by,
+        category_id: line.category_id,
       }));
       const { error } = await supabase.rpc('update_grouped_expense', {
         p_expense_group_id: expenseGroupId,

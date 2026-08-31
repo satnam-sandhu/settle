@@ -15,7 +15,9 @@
     "db:push": "supabase db push",
     "functions:deploy": "supabase functions deploy --no-verify-jwt",
     "functions:deploy:notification": "supabase functions deploy send-notification --no-verify-jwt",
-    "deploy": "npm run link && npm run db:push && npm run functions:deploy"
+    "deploy": "npm run link && npm run db:push && npm run functions:deploy",
+    "eas:android": "eas build --platform android --profile production",
+    "eas:android:submit": "eas submit --platform android --profile production"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",

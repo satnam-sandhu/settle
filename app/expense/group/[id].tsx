@@ -164,20 +164,26 @@ export default function ExpenseGroupDetailScreen() {
           {/* Top band: category · date · title · total. For single-line, use line description as title. */}
           <View style={[styles.receiptTop, { backgroundColor: colors.primary[500] + '0E' }]}>
             <View style={styles.receiptTopMeta}>
-              {eg.category ? (
-                <View style={styles.categoryPill}>
-                  <Text style={styles.categoryPillEmoji}>{eg.category.icon}</Text>
-                  <Text style={[styles.categoryPillName, { color: secondaryTextColor }]}>
-                    {eg.category.name}
-                  </Text>
-                </View>
+              {isSingleLine ? (
+                (singleLine?.category ?? eg.category) ? (
+                  <View style={styles.categoryPill}>
+                    <Text style={styles.categoryPillEmoji}>{(singleLine?.category ?? eg.category)!.icon}</Text>
+                    <Text style={[styles.categoryPillName, { color: secondaryTextColor }]}>
+                      {(singleLine?.category ?? eg.category)!.name}
+                    </Text>
+                  </View>
+                ) : (
+                  <View style={styles.categoryPill}>
+                    <IconSymbol name="doc.text" size={12} color={secondaryTextColor} />
+                    <Text style={[styles.categoryPillName, { color: secondaryTextColor }]}>
+                      Expense
+                    </Text>
+                  </View>
+                )
               ) : (
-                <View style={styles.categoryPill}>
-                  <IconSymbol name="doc.text" size={12} color={secondaryTextColor} />
-                  <Text style={[styles.categoryPillName, { color: secondaryTextColor }]}>
-                    Expense
-                  </Text>
-                </View>
+                <Text style={[styles.categoryPillName, { color: secondaryTextColor }]}>
+                  {lines.length} PARTS
+                </Text>
               )}
               <Text style={[styles.receiptDate, { color: secondaryTextColor }]}>
                 {formatDate(expenseDate)}
@@ -192,18 +198,22 @@ export default function ExpenseGroupDetailScreen() {
             </Text>
           </View>
 
-          <View style={[styles.separator, { backgroundColor: separatorColor }]} />
-
-          {/* Paid by */}
-          <View style={styles.receiptSection}>
-            <Text style={[styles.sectionLabel, { color: secondaryTextColor }]}>PAID BY</Text>
-            <View style={styles.paidByRow}>
-              <Avatar user={eg.paid_by_user} size={36} />
-              <Text style={[styles.paidByName, { color: textColor }]}>
-                {eg.paid_by_user.id === user?.id ? 'You' : eg.paid_by_user.name}
-              </Text>
-            </View>
-          </View>
+          {isSingleLine && (
+            <>
+              <View style={[styles.separator, { backgroundColor: separatorColor }]} />
+              <View style={styles.receiptSection}>
+                <Text style={[styles.sectionLabel, { color: secondaryTextColor }]}>PAID BY</Text>
+                <View style={styles.paidByRow}>
+                  <Avatar user={singleLine?.paid_by_user ?? eg.paid_by_user} size={36} />
+                  <Text style={[styles.paidByName, { color: textColor }]}>
+                    {(singleLine?.paid_by_user ?? eg.paid_by_user).id === user?.id
+                      ? 'You'
+                      : (singleLine?.paid_by_user ?? eg.paid_by_user).name}
+                  </Text>
+                </View>
+              </View>
+            </>
+          )}
 
           {/* Multi-line: one block per line. Single-line: one split block only (no duplicate line row). */}
           {isSingleLine && singleLine ? (
@@ -241,6 +251,22 @@ export default function ExpenseGroupDetailScreen() {
                     <Text style={[styles.lineAmount, { color: textColor }]}>
                       {formatCurrency(line.amount, line.currency)}
                     </Text>
+                  </View>
+                  <View style={styles.lineMetaRow}>
+                    {line.category ? (
+                      <View style={styles.categoryPill}>
+                        <Text style={styles.categoryPillEmoji}>{line.category.icon}</Text>
+                        <Text style={[styles.categoryPillName, { color: secondaryTextColor }]}>
+                          {line.category.name}
+                        </Text>
+                      </View>
+                    ) : null}
+                    <View style={styles.linePaidBy}>
+                      <Avatar user={line.paid_by_user} size={22} />
+                      <Text style={[styles.linePaidByName, { color: secondaryTextColor }]}>
+                        {line.paid_by_user.id === user?.id ? 'You' : line.paid_by_user.name}
+                      </Text>
+                    </View>
                   </View>
                   <Text style={[styles.sectionLabel, { color: secondaryTextColor, marginTop: 12, marginBottom: 14 }]}>
                     SPLIT BETWEEN {line.splits.length} {line.splits.length === 1 ? 'PERSON' : 'PEOPLE'}
@@ -415,6 +441,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 4,
   },
+  lineMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 10,
+    marginTop: 8,
+  },
+  linePaidBy: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  linePaidByName: { fontSize: 13, fontWeight: '500' },
   lineTitle: { fontSize: 16, fontWeight: '600', flex: 1 },
   lineAmount: { fontSize: 18, fontWeight: '600' },
   splitRow: {

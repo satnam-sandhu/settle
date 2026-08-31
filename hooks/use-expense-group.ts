@@ -51,7 +51,18 @@ async function fetchExpenseGroupData(expenseGroupId: string): Promise<ExpenseGro
 
   const { data: childExpensesRaw, error: childrenError } = await supabase
     .from('expenses')
-    .select('id, description, amount, currency, expense_group_id, notes')
+    .select(`
+      id,
+      description,
+      amount,
+      currency,
+      expense_group_id,
+      notes,
+      paid_by,
+      category_id,
+      paid_by_user:paid_by (id, name, phone, avatar_url),
+      category:category_id (*)
+    `)
     .eq('expense_group_id', expenseGroupId)
     .order('created_at', { ascending: true });
 
@@ -64,6 +75,10 @@ async function fetchExpenseGroupData(expenseGroupId: string): Promise<ExpenseGro
     currency: string;
     expense_group_id: string;
     notes: string | null;
+    paid_by: string;
+    category_id: string | null;
+    paid_by_user: unknown;
+    category: unknown;
   }>;
 
   const expenseIds = childExpenses.map((e) => e.id);
@@ -105,6 +120,10 @@ async function fetchExpenseGroupData(expenseGroupId: string): Promise<ExpenseGro
     currency: e.currency as CurrencyCode,
     splits: splitsMap[e.id] || [],
     notes: e.notes ?? undefined,
+    paid_by: e.paid_by,
+    paid_by_user: e.paid_by_user as UserSummary,
+    category_id: e.category_id,
+    category: (e.category as DbCategory | null) ?? null,
   }));
 
   const total = lines.reduce((sum, line) => sum + line.amount, 0);
