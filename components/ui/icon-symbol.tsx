@@ -1,7 +1,7 @@
 // Fallback for web — uses Material Icons via SF Symbol mapping.
 
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
-import { SymbolWeight } from 'expo-symbols';
+import type { SymbolWeight } from 'expo-symbols';
 import { OpaqueColorValue, type StyleProp, type TextStyle } from 'react-native';
 
 import { ICON_SYMBOL_MAPPING, type IconSymbolName } from '@/components/ui/icon-symbol-mapping';

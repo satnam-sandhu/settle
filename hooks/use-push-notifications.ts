@@ -5,6 +5,7 @@
 import * as Notifications from 'expo-notifications';
 import { useRouter } from 'expo-router';
 import { useEffect, useRef } from 'react';
+import { Platform } from 'react-native';
 
 import { useAuth } from '@/contexts/auth-context';
 import { useUser } from '@/hooks/use-user';
@@ -35,6 +36,7 @@ export function usePushNotifications(): void {
   const lastSyncKey = useRef<string | null>(null);
 
   useEffect(() => {
+    if (Platform.OS !== 'ios' && Platform.OS !== 'android') return;
     if (!isPushNotificationsEnabled()) return;
 
     const receivedSub = Notifications.addNotificationReceivedListener(() => {
@@ -59,6 +61,7 @@ export function usePushNotifications(): void {
   }, [router]);
 
   useEffect(() => {
+    if (Platform.OS !== 'ios' && Platform.OS !== 'android') return;
     if (!isPushNotificationsEnabled()) return;
 
     if (!user?.id) {

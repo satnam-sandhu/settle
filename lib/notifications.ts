@@ -20,14 +20,16 @@ export function isPushNotificationsEnabled(): boolean {
   return true;
 }
 
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldPlaySound: true,
-    shouldSetBadge: true,
-    shouldShowBanner: true,
-    shouldShowList: true,
-  }),
-});
+if (Platform.OS === 'ios' || Platform.OS === 'android') {
+  Notifications.setNotificationHandler({
+    handleNotification: async () => ({
+      shouldPlaySound: true,
+      shouldSetBadge: true,
+      shouldShowBanner: true,
+      shouldShowList: true,
+    }),
+  });
+}
 
 function getEasProjectId(): string | undefined {
   return (
@@ -53,6 +55,7 @@ async function ensureAndroidChannel(): Promise<void> {
  */
 export async function registerForPushNotificationsAsync(): Promise<string | null> {
   if (!isPushNotificationsEnabled()) return null;
+  if (Platform.OS !== 'ios' && Platform.OS !== 'android') return null;
 
   if (Platform.OS === 'ios' && !Device.isDevice) {
     if (__DEV__) {

@@ -14,7 +14,7 @@ import { useAddExpenseTargetActions } from '@/hooks/use-add-expense-target-actio
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useTabBarOffset } from '@/hooks/use-tab-bar-offset';
 
-const isAndroid = Platform.OS === 'android';
+const useInlineSearch = Platform.OS !== 'ios';
 
 export default function AddSearchTabScreen() {
   const colorScheme = useColorScheme() ?? 'light';
@@ -34,7 +34,7 @@ export default function AddSearchTabScreen() {
       <Stack.Screen
         options={{
           headerShown: false,
-          ...(isAndroid
+          ...(useInlineSearch
             ? {}
             : {
                 headerSearchBarOptions: {
@@ -48,8 +48,8 @@ export default function AddSearchTabScreen() {
       />
       <PeopleSearchPanel
         searchQuery={searchQuery}
-        onSearchQueryChange={isAndroid ? setSearchQuery : undefined}
-        autoFocusSearch={isAndroid}
+        onSearchQueryChange={useInlineSearch ? setSearchQuery : undefined}
+        autoFocusSearch={useInlineSearch}
         onGroupSelect={handleGroupSelect}
         onContactSelect={handleContactSelect}
         recordRecentTarget={recordRecentTarget}

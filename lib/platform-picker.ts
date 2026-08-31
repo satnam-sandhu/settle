@@ -109,8 +109,13 @@ export function showPhotoSourcePicker({
   onRemovePhoto,
 }: PhotoSourcePickerConfig) {
   const options: PlatformPickerOption[] = [
-    { label: 'Take Photo', onPress: onTakePhoto },
-    { label: 'Choose from Library', onPress: onChooseFromLibrary },
+    ...(Platform.OS === 'web'
+      ? []
+      : [{ label: 'Take Photo', onPress: onTakePhoto }]),
+    {
+      label: Platform.OS === 'web' ? 'Choose photo' : 'Choose from Library',
+      onPress: onChooseFromLibrary,
+    },
   ];
 
   if (hasExistingPhoto && onRemovePhoto) {

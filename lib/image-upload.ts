@@ -6,6 +6,8 @@
 
 import { File } from 'expo-file-system';
 import * as ImagePicker from 'expo-image-picker';
+import { Platform } from 'react-native';
+
 import { showPlatformAlert } from './platform-picker';
 import { supabase } from './supabase';
 
@@ -21,6 +23,11 @@ interface UploadResult {
  * Request camera permissions
  */
 export async function requestCameraPermission(): Promise<boolean> {
+  if (Platform.OS === 'web') {
+    showPlatformAlert('Camera not available', 'Choose a photo from your files instead.');
+    return false;
+  }
+
   const { status } = await ImagePicker.requestCameraPermissionsAsync();
   if (status !== 'granted') {
     showPlatformAlert('Permission Required', 'Please allow camera access to take photos.');
@@ -98,6 +105,27 @@ function getFileExtension(uri: string): string {
   return match ? match[1].toLowerCase() : 'jpg';
 }
 
+async function readUriAsArrayBuffer(uri: string): Promise<ArrayBuffer> {
+  if (
+    Platform.OS === 'web' ||
+    uri.startsWith('blob:') ||
+    uri.startsWith('http') ||
+    uri.startsWith('data:')
+  ) {
+    const response = await fetch(uri);
+    if (!response.ok) {
+      throw new Error('Could not read the selected image');
+    }
+    return response.arrayBuffer();
+  }
+
+  const file = new File(uri);
+  if (!file.exists) {
+    throw new Error('File does not exist');
+  }
+  return file.arrayBuffer();
+}
+
 /**
  * Upload image to Supabase Storage with retry
  */
@@ -115,19 +143,8 @@ export async function uploadImage(
       const filename = generateFilename(extension);
       const path = `${folder}/${filename}`;
 
-      // Use the new File API - File implements Blob
-      const file = new File(uri);
-      
-      // Check if file exists
-      if (!file.exists) {
-        return { success: false, url: null, error: 'File does not exist' };
-      }
-
-      // Get mime type
       const mimeType = `image/${extension === 'jpg' ? 'jpeg' : extension}`;
-
-      // Read as ArrayBuffer using the Blob interface
-      const arrayBuffer = await file.arrayBuffer();
+      const arrayBuffer = await readUriAsArrayBuffer(uri);
       
       console.log(`[ImageUpload] Uploading to ${bucket}/${path}, size: ${arrayBuffer.byteLength} bytes, attempt: ${attempt + 1}`);
 

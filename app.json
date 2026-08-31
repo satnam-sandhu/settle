@@ -5,7 +5,8 @@
     "version": "1.3.0",
     "platforms": [
       "ios",
-      "android"
+      "android",
+      "web"
     ],
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
@@ -67,6 +68,17 @@
         }
       ]
     ],
+    "web": {
+      "bundler": "metro",
+      "output": "single",
+      "favicon": "./assets/images/icon.png",
+      "name": "Settle",
+      "shortName": "Settle",
+      "lang": "en",
+      "themeColor": "#4CAF50",
+      "backgroundColor": "#4CAF50",
+      "display": "standalone"
+    },
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true

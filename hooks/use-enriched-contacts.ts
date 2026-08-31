@@ -13,6 +13,7 @@
 
 import * as Contacts from 'expo-contacts';
 import { useCallback, useState } from 'react';
+import { Platform } from 'react-native';
 
 import { useAuth } from '@/contexts/auth-context';
 import { supabase } from '@/lib/supabase';
@@ -64,6 +65,12 @@ async function fetchAndEnrichContacts(): Promise<{
   userPhoneMap: Map<string, { id: string; avatarUrl: string | null }>;
   hasPermission: boolean;
 }> {
+  // Browsers have no device address book; keep permission "granted" with an empty
+  // list so friends/groups search still renders.
+  if (Platform.OS === 'web') {
+    return { flatContacts: [], userPhoneMap: new Map(), hasPermission: true };
+  }
+
   const { status } = await Contacts.requestPermissionsAsync();
   if (status !== 'granted') {
     return { flatContacts: [], userPhoneMap: new Map(), hasPermission: false };
