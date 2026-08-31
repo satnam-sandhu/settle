@@ -4,6 +4,7 @@ import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useMemo } from 'react';
 import { ActivityIndicator, Platform, View } from 'react-native';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import 'react-native-reanimated';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
@@ -25,6 +26,7 @@ import {
 } from '@/lib/analytics';
 import { getNavigationTheme } from '@/lib/platform-theme';
 import { queryClient } from '@/lib/query-client';
+import { registerServiceWorker } from '@/lib/register-service-worker';
 
 /**
  * Component that captures the PostHog client and makes it available
@@ -83,11 +85,11 @@ function RootLayoutNav() {
           headerShown: false,
           gestureEnabled: true,
           fullScreenGestureEnabled: Platform.OS === 'ios',
+          contentStyle: Platform.OS === 'web' ? { flex: 1 } : undefined,
         }}
       >
         <Stack.Screen name="(auth)" />
         <Stack.Screen name="(tabs)" />
-        <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal', headerShown: true }} />
       </Stack>
       <StatusBar style={colorScheme === 'dark' ? 'light' : 'dark'} />
     </ThemeProvider>
@@ -96,19 +98,25 @@ function RootLayoutNav() {
 
 function AppProviders({ children }: { children: React.ReactNode }) {
   return (
-    <QueryClientProvider client={queryClient}>
-      <SafeAreaProvider>
-        <SettingsProvider>
-          <AuthProvider>
-            <SyncProvider>{children}</SyncProvider>
-          </AuthProvider>
-        </SettingsProvider>
-      </SafeAreaProvider>
-    </QueryClientProvider>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <QueryClientProvider client={queryClient}>
+        <SafeAreaProvider>
+          <SettingsProvider>
+            <AuthProvider>
+              <SyncProvider>{children}</SyncProvider>
+            </AuthProvider>
+          </SettingsProvider>
+        </SafeAreaProvider>
+      </QueryClientProvider>
+    </GestureHandlerRootView>
   );
 }
 
 export default function RootLayout() {
+  useEffect(() => {
+    registerServiceWorker();
+  }, []);
+
   if (!isAnalyticsEnabled()) {
     return (
       <AppProviders>

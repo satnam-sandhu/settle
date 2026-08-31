@@ -11,7 +11,7 @@ import { FlashList } from '@shopify/flash-list';
 import { router } from 'expo-router';
 import { MotiView } from 'moti';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
+import { Platform, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -134,6 +134,8 @@ export default function HomeScreen() {
   const isDark = colorScheme === 'dark';
   const { contentPaddingBottom } = useTabBarOffset();
   const settlePickerRef = useRef<BottomSheet>(null);
+  const settlePickerPendingExpand = useRef(false);
+  const [settlePickerMounted, setSettlePickerMounted] = useState(Platform.OS !== 'web');
   const { user } = useUser();
   const { isOnline } = useSync();
   const { friends, isLoading: isLoadingFriends, refresh: refreshFriends } = useFriends();
@@ -152,12 +154,26 @@ export default function HomeScreen() {
       Analytics.track(SETTLEMENT_EVENTS.SETTLE_UP_SHEET_OPENED, {
         entry_point: 'home_summary_card',
       });
+      if (!settlePickerMounted) {
+        settlePickerPendingExpand.current = true;
+        setSettlePickerMounted(true);
+        return;
+      }
       settlePickerRef.current?.expand();
     };
     return () => {
       homeSettlePickerActions.open = null;
     };
-  }, []);
+  }, [settlePickerMounted]);
+
+  useEffect(() => {
+    if (!settlePickerPendingExpand.current) return;
+    settlePickerPendingExpand.current = false;
+    const id = requestAnimationFrame(() => {
+      settlePickerRef.current?.expand();
+    });
+    return () => cancelAnimationFrame(id);
+  }, [settlePickerMounted]);
 
   const handleRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -390,11 +406,13 @@ export default function HomeScreen() {
       </SafeAreaView>
 
       {/* Settle picker — outside SafeAreaView so it covers full screen */}
-      <SettlePickerSheet
-        ref={settlePickerRef}
-        friends={friends}
-        isLoading={isLoadingFriends}
-      />
+      {settlePickerMounted ? (
+        <SettlePickerSheet
+          ref={settlePickerRef}
+          friends={friends}
+          isLoading={isLoadingFriends}
+        />
+      ) : null}
     </GestureHandlerRootView>
   );
 }

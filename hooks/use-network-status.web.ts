@@ -1,25 +1,47 @@
 /**
- * Network Status Hook (native)
+ * Network Status Hook (web)
  *
- * HEAD to generate_204 — no CORS on iOS/Android, and no Fetch `cache` option
- * (passing `cache: 'no-store'` makes RN Android fail with Network request failed).
+ * Probes Supabase instead of google.com/generate_204 (CORS-blocked in browsers).
+ * Treats any non-5xx as reachable — a missing API key still returns 401.
  */
 
 import { useCallback, useEffect, useState } from 'react';
 import { AppState, type AppStateStatus } from 'react-native';
 
+function probeUrl(): string {
+  const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL?.replace(/\/$/, '');
+  if (supabaseUrl) {
+    return `${supabaseUrl}/auth/v1/health`;
+  }
+  return '/manifest.json';
+}
+
 async function checkOnline(): Promise<boolean> {
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+    return false;
+  }
+
   try {
+    const probe = probeUrl();
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 5000);
 
-    const response = await fetch('https://www.google.com/generate_204', {
-      method: 'HEAD',
+    const headers: Record<string, string> = {};
+    const anonKey = process.env.EXPO_PUBLIC_SUPABASE_KEY;
+    if (anonKey && probe.includes('supabase.co')) {
+      headers.apikey = anonKey;
+      headers.Authorization = `Bearer ${anonKey}`;
+    }
+
+    const response = await fetch(probe, {
+      method: 'GET',
+      headers,
       signal: controller.signal,
+      cache: 'no-store',
     });
 
     clearTimeout(timeoutId);
-    return response.ok;
+    return response.status > 0 && response.status < 500;
   } catch {
     return false;
   }
@@ -63,6 +85,22 @@ export function useNetworkStatus(): NetworkStatus {
 
     const subscription = AppState.addEventListener('change', handleAppStateChange);
     return () => subscription.remove();
+  }, [refresh]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const goOnline = () => {
+      void refresh();
+    };
+    const goOffline = () => setIsOnline(false);
+
+    window.addEventListener('online', goOnline);
+    window.addEventListener('offline', goOffline);
+    return () => {
+      window.removeEventListener('online', goOnline);
+      window.removeEventListener('offline', goOffline);
+    };
   }, [refresh]);
 
   useEffect(() => {

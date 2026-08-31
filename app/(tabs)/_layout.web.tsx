@@ -1,9 +1,9 @@
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
-import { TabList, TabSlot, TabTrigger, Tabs, type TabTriggerSlotProps } from 'expo-router/ui';
+import { Tabs } from 'expo-router';
 import { useSegments } from 'expo-router';
 import { AnimatePresence } from 'moti';
-import { forwardRef, useEffect, useRef } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useRef } from 'react';
+import { StyleSheet, View } from 'react-native';
 
 import { OfflineBanner } from '@/components/ui/offline-banner';
 import { brand, platform } from '@/constants/colors';
@@ -42,30 +42,6 @@ function TabAnalyticsListener() {
   return null;
 }
 
-type WebTabButtonProps = TabTriggerSlotProps & {
-  icon: React.ComponentProps<typeof MaterialIcons>['name'];
-  label: string;
-  inactiveColor: string;
-};
-
-const WebTabButton = forwardRef<View, WebTabButtonProps>(function WebTabButton(
-  { icon, label, inactiveColor, isFocused = false, style: _style, ...pressableProps },
-  ref
-) {
-  const color = isFocused ? brand.primary[500] : inactiveColor;
-
-  return (
-    <Pressable
-      ref={ref}
-      {...pressableProps}
-      style={({ pressed }) => [styles.tab, { opacity: pressed ? 0.7 : 1 }]}
-    >
-      <MaterialIcons name={icon} size={24} color={color} />
-      <Text style={[styles.label, { color }]}>{label}</Text>
-    </Pressable>
-  );
-});
-
 export default function WebTabLayout() {
   const { isOnline } = useSync();
   const colorScheme = useColorScheme() ?? 'light';
@@ -82,30 +58,53 @@ export default function WebTabLayout() {
         {!isOnline && <OfflineBanner key="offline-banner" placement="top" />}
       </AnimatePresence>
 
-      <Tabs style={styles.tabs}>
-        <TabSlot />
-        <TabList
-          style={[
-            styles.tabList,
-            {
-              backgroundColor: tabBarBackground,
-              borderTopColor: isDark ? platform.gray[800] : platform.gray[200],
-            },
-          ]}
-        >
-          <TabTrigger name="index" href="/" asChild>
-            <WebTabButton icon="home" label="Home" inactiveColor={inactiveColor} />
-          </TabTrigger>
-          <TabTrigger name="friends" href="/friends" asChild>
-            <WebTabButton icon="people" label="Friends" inactiveColor={inactiveColor} />
-          </TabTrigger>
-          <TabTrigger name="groups" href="/groups" asChild>
-            <WebTabButton icon="layers" label="Groups" inactiveColor={inactiveColor} />
-          </TabTrigger>
-          <TabTrigger name="add" href="/add" asChild>
-            <WebTabButton icon="search" label="Search" inactiveColor={inactiveColor} />
-          </TabTrigger>
-        </TabList>
+      <Tabs
+        screenOptions={{
+          headerShown: false,
+          tabBarActiveTintColor: brand.primary[500],
+          tabBarInactiveTintColor: inactiveColor,
+          tabBarStyle: {
+            backgroundColor: tabBarBackground,
+            borderTopColor: isDark ? platform.gray[800] : platform.gray[200],
+          },
+        }}
+      >
+        <Tabs.Screen
+          name="index"
+          options={{
+            title: 'Home',
+            tabBarIcon: ({ color, size }) => (
+              <MaterialIcons name="home" color={color} size={size} />
+            ),
+          }}
+        />
+        <Tabs.Screen
+          name="friends"
+          options={{
+            title: 'Friends',
+            tabBarIcon: ({ color, size }) => (
+              <MaterialIcons name="people" color={color} size={size} />
+            ),
+          }}
+        />
+        <Tabs.Screen
+          name="groups"
+          options={{
+            title: 'Groups',
+            tabBarIcon: ({ color, size }) => (
+              <MaterialIcons name="layers" color={color} size={size} />
+            ),
+          }}
+        />
+        <Tabs.Screen
+          name="add"
+          options={{
+            title: 'Search',
+            tabBarIcon: ({ color, size }) => (
+              <MaterialIcons name="search" color={color} size={size} />
+            ),
+          }}
+        />
       </Tabs>
     </View>
   );
@@ -117,25 +116,5 @@ const styles = StyleSheet.create({
     maxWidth: 720,
     width: '100%',
     alignSelf: 'center',
-  },
-  tabs: {
-    flex: 1,
-  },
-  tabList: {
-    flexDirection: 'row',
-    borderTopWidth: StyleSheet.hairlineWidth,
-    paddingBottom: 8,
-    paddingTop: 8,
-  },
-  tab: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 4,
-    minHeight: 52,
-  },
-  label: {
-    fontSize: 11,
-    fontWeight: '600',
   },
 });
