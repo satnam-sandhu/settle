@@ -78,6 +78,8 @@ type ExtraLineDraft = {
 };
 
 type PickerLineTarget = 'main' | number;
+type SheetKind = 'currency' | 'category' | 'paidBy' | 'split';
+type ExpandedPartKey = 'main' | number;
 
 function toGroupedLineForm(
   description: string,
@@ -197,9 +199,11 @@ export default function AddExpenseScreen() {
   // Picker sheet state — mount BottomSheet only while open or opening; unmount when closed
   // so index=-1 never blocks touches on Android (@gorhom/bottom-sheet).
   const pickerSheetRef = useRef<BottomSheet>(null);
-  const [activeSheet, setActiveSheet] = useState<'currency' | 'category' | 'paidBy' | null>(null);
+  const [activeSheet, setActiveSheet] = useState<SheetKind | null>(null);
   const [pickerSheetMounted, setPickerSheetMounted] = useState(false);
   const [currencySearch, setCurrencySearch] = useState('');
+  const [expandedPart, setExpandedPart] = useState<ExpandedPartKey>('main');
+  const [notesOpen, setNotesOpen] = useState<Record<string, boolean>>({});
 
   // Theme
   const textColor = isDark ? colors.text.dark.primary : colors.text.light.primary;
@@ -358,6 +362,11 @@ export default function AddExpenseScreen() {
     [group]
   );
 
+  const paidByName = useCallback(
+    (id: string) => (id === user?.id ? 'You' : getMember(id)?.user.name || 'Unknown'),
+    [user?.id, getMember]
+  );
+
   const splitAmounts = useMemo(() => {
     const total = parseFloat(amount) || 0;
     if (total <= 0 || splitBetween.length === 0) return {};
@@ -381,19 +390,23 @@ export default function AddExpenseScreen() {
     const defaultSplit = group?.members?.map((m) => m.user_id) ?? (user ? [user.id] : []);
     setExtraLines((prev) => {
       const last = prev[prev.length - 1];
+      const inheritSplit = last?.splitBetween?.length
+        ? last.splitBetween
+        : (splitBetween.length ? splitBetween : defaultSplit);
       return [
         ...prev,
         {
           description: '',
           amount: '',
-          splitBetween: defaultSplit,
+          splitBetween: inheritSplit,
           notes: '',
           paidBy: last?.paidBy || paidBy,
           category: last?.category !== undefined ? last.category : selectedCategory,
         },
       ];
     });
-  }, [group?.members, user, description, paidBy, selectedCategory]);
+    setExpandedPart(extraLines.length);
+  }, [group?.members, user, description, paidBy, selectedCategory, splitBetween, extraLines.length]);
 
   const updateExtraLine = useCallback((index: number, updates: Partial<ExtraLineDraft>) => {
     setExtraLines((prev) => {
@@ -406,6 +419,12 @@ export default function AddExpenseScreen() {
   const removeExtraLine = useCallback((index: number) => {
     hapticSelection();
     setExtraLines((prev) => prev.filter((_, i) => i !== index));
+    setExpandedPart((cur) => {
+      if (cur === 'main') return cur;
+      if (cur === index) return 'main';
+      if (typeof cur === 'number' && cur > index) return cur - 1;
+      return cur;
+    });
   }, []);
 
   // When in grouped layout, removing Part 1 promotes first extra line to main form (Part 1)
@@ -420,6 +439,11 @@ export default function AddExpenseScreen() {
     setPaidBy(first.paidBy);
     setSelectedCategory(first.category);
     setExtraLines((prev) => prev.slice(1));
+    setExpandedPart((cur) => {
+      if (cur === 'main' || cur === 0) return 'main';
+      if (typeof cur === 'number') return cur - 1;
+      return cur;
+    });
   }, [extraLines]);
 
   // Grouped layout only when we actually have 2+ parts; when editing and user removes to 1 part, show single-expense UI
@@ -453,10 +477,10 @@ export default function AddExpenseScreen() {
 
   // Keep a ref in sync with activeSheet so the sheet content renders
   // immediately from the ref even before React's async state update commits.
-  const activeSheetRef = useRef<'currency' | 'category' | 'paidBy' | null>(null);
+  const activeSheetRef = useRef<SheetKind | null>(null);
   const pickerLineTargetRef = useRef<PickerLineTarget>('main');
 
-  const openSheet = useCallback((type: 'currency' | 'category' | 'paidBy', lineTarget: PickerLineTarget = 'main') => {
+  const openSheet = useCallback((type: SheetKind, lineTarget: PickerLineTarget = 'main') => {
     Keyboard.dismiss();
     hapticSelection();
     pickerLineTargetRef.current = lineTarget;
@@ -755,6 +779,12 @@ export default function AddExpenseScreen() {
     });
   };
 
+  const toggleSheetSplit = (userId: string) => {
+    const target = pickerLineTargetRef.current;
+    if (target === 'main') toggleMemberInSplit(userId);
+    else toggleExtraLineSplit(target, userId);
+  };
+
   // Loading: setting up group or direct flow
   const isSettingUp = hasSelectedTarget && (
     isLoadingGroup || isCreatingDirectGroup || isCreatingShadowUser
@@ -819,9 +849,10 @@ export default function AddExpenseScreen() {
               <Text style={[styles.loadingText, { color: secondaryTextColor }]}>Loading expense…</Text>
             </View>
           ) : (hasPreselection || hasSelectedTarget || isEditMode) ? (
+            <>
             <ScrollView
               style={styles.flex}
-              contentContainerStyle={styles.scrollContent}
+              contentContainerStyle={[styles.scrollContent, isGroupedLayout && { paddingBottom: 16 }]}
               keyboardShouldPersistTaps="handled"
               showsVerticalScrollIndicator={false}
             >
@@ -1023,7 +1054,7 @@ export default function AddExpenseScreen() {
                 </>
               )}
 
-              {/* ── Grouped layout: group-level category + paid by, total band, Part 1 card, Add more, Part 2+ cards ── */}
+              {/* ── Grouped layout: group title + accordion parts ── */}
               {isGroupedLayout && (
                 <>
                   <MotiView
@@ -1032,7 +1063,7 @@ export default function AddExpenseScreen() {
                     transition={{ type: 'spring', damping: 20, stiffness: 200, delay: 90 }}
                     style={styles.section}
                   >
-                    <Text style={[styles.sectionLabel, { color: secondaryTextColor }]}>DESCRIPTION (GROUP)</Text>
+                    <Text style={[styles.sectionLabel, { color: secondaryTextColor }]}>PAYMENT</Text>
                     <TextInput
                       style={[styles.extraLineInput, { color: textColor, borderColor, backgroundColor: cardBg }]}
                       placeholder="What's this payment for? (e.g. Dinner at club)"
@@ -1044,317 +1075,245 @@ export default function AddExpenseScreen() {
                     {errors.groupDescription ? <Text style={styles.errorMessage}>{errors.groupDescription}</Text> : null}
                   </MotiView>
 
-                  {/* Total band (separate from Part 1) */}
-                  <MotiView
-                    from={{ opacity: 0, translateY: 10 }}
-                    animate={{ opacity: 1, translateY: 0 }}
-                    transition={{ type: 'spring', damping: 20, stiffness: 200, delay: 140 }}
-                    style={[styles.totalBand, { backgroundColor: colors.primary[500] + '0D', borderColor }]}
-                  >
-                    <Text style={[styles.totalLabel, { color: secondaryTextColor }]}>
-                      TOTAL · {CURRENCIES[currency].symbol}{totalAmount.toFixed(2)}
-                    </Text>
-                    <Pressable
-                      onPress={() => {
-                        showPlatformAlert('Coming Soon', 'Support for other currencies is on the way!');
-                      }}
-                      style={({ pressed }) => [styles.currencyPillSmall, { borderColor, opacity: pressed ? 0.7 : 1 }]}
-                    >
-                      <Text style={[styles.currencyPillSymbol, { color: colors.primary[500] }]}>{CURRENCIES[currency].symbol}</Text>
-                      <Text style={[styles.currencyPillCode, { color: secondaryTextColor }]}>{currency}</Text>
-                      <IconSymbol name="chevron.down" size={12} color={secondaryTextColor} />
-                    </Pressable>
-                  </MotiView>
-
-                  {/* Part 1 card (same structure as Part 2+) */}
-                  <MotiView
-                    from={{ opacity: 0, translateY: 10 }}
-                    animate={{ opacity: 1, translateY: 0 }}
-                    transition={{ type: 'spring', damping: 20, stiffness: 200, delay: 160 }}
-                    style={[styles.extraLineCard, { backgroundColor: cardBg, borderColor }]}
-                  >
-                    <View style={styles.extraLineCardHeader}>
-                      <Text style={[styles.extraLineTitle, { color: secondaryTextColor }]}>Part 1</Text>
-                      {extraLines.length >= 1 && (
-                        <Pressable onPress={removePartOne} hitSlop={8} style={({ pressed }) => [{ opacity: pressed ? 0.6 : 1 }]}>
-                          <IconSymbol name="trash.fill" size={20} color={colors.error} />
-                        </Pressable>
-                      )}
-                    </View>
-                    <TextInput
-                      style={[styles.extraLineInput, { color: textColor, borderColor }]}
-                      placeholder="What's this part for? (required)"
-                      placeholderTextColor={isDark ? colors.gray[600] : colors.gray[400]}
-                      value={description}
-                      onChangeText={setDescription}
-                      returnKeyType="done"
-                    />
-                    {errors.description ? <Text style={styles.errorMessage}>{errors.description}</Text> : null}
-                    <View style={styles.extraLineAmountRow}>
-                      <Text style={[styles.extraLineCurrency, { color: secondaryTextColor }]}>{CURRENCIES[currency].symbol}</Text>
-                      <TextInput
-                        style={[styles.extraLineAmountInput, { color: textColor }]}
-                        placeholder="0.00"
-                        placeholderTextColor={isDark ? colors.gray[600] : colors.gray[300]}
-                        value={amount}
-                        onChangeText={setAmount}
-                        keyboardType="decimal-pad"
-                        returnKeyType="done"
-                      />
-                    </View>
-                    {errors.amount ? <Text style={styles.errorMessage}>{errors.amount}</Text> : null}
-                    <Text style={[styles.sectionLabel, { color: secondaryTextColor, marginTop: 12 }]}>CATEGORY</Text>
-                    <Pressable
-                      onPress={() => openSheet('category', 'main')}
-                      style={[styles.selectorRow, { backgroundColor: isDark ? colors.gray[800] : colors.gray[50], borderColor }]}
-                    >
-                      {selectedCategory ? (
-                        <View style={styles.selectorLeft}>
-                          <Text style={styles.categoryTileEmoji}>{selectedCategory.icon}</Text>
-                          <Text style={[styles.selectorValue, { color: textColor, marginLeft: 10 }]}>{selectedCategory.name}</Text>
-                        </View>
-                      ) : (
-                        <View style={styles.selectorLeft}>
-                          <View style={[styles.selectorIconWrap, { backgroundColor: borderColor }]}>
-                            <IconSymbol name="square.grid.2x2" size={16} color={secondaryTextColor} />
-                          </View>
-                          <Text style={[styles.selectorPlaceholder, { color: secondaryTextColor }]}>
-                            Choose category
+                  {/* Part 1 */}
+                  <View style={[styles.extraLineCard, { backgroundColor: cardBg, borderColor, padding: expandedPart === 'main' ? 16 : 0 }]}>
+                    <View style={[styles.partSummaryRow, expandedPart === 'main' && { paddingHorizontal: 0, paddingTop: 0 }]}>
+                      <Pressable
+                        onPress={() => { hapticSelection(); setExpandedPart('main'); }}
+                        style={styles.partSummaryHit}
+                      >
+                        <View style={styles.partSummaryText}>
+                          <Text style={[styles.partSummaryTitle, { color: textColor }]} numberOfLines={1}>
+                            {description.trim() || 'Part 1'}
                           </Text>
-                        </View>
-                      )}
-                      <IconSymbol name="chevron.down" size={18} color={secondaryTextColor} />
-                    </Pressable>
-                    <Text style={[styles.sectionLabel, { color: secondaryTextColor, marginTop: 12 }]}>PAID BY</Text>
-                    <Pressable
-                      onPress={() => openSheet('paidBy', 'main')}
-                      style={[styles.selectorRow, { backgroundColor: isDark ? colors.gray[800] : colors.gray[50], borderColor }]}
-                    >
-                      {paidBy ? (
-                        <View style={styles.selectorLeft}>
-                          {getMember(paidBy) && (
-                            <Avatar user={getMember(paidBy)!.user} size={30} style={{ marginRight: 10 }} />
-                          )}
-                          <Text style={[styles.selectorValue, { color: textColor }]}>
-                            {paidBy === user?.id ? 'You' : getMember(paidBy)?.user.name || 'Unknown'}
-                          </Text>
-                        </View>
-                      ) : (
-                        <View style={styles.selectorLeft}>
-                          <View style={[styles.selectorIconWrap, { backgroundColor: borderColor }]}>
-                            <IconSymbol name="person" size={16} color={secondaryTextColor} />
-                          </View>
-                          <Text style={[styles.selectorPlaceholder, { color: secondaryTextColor }]}>
-                            Who paid?
-                          </Text>
-                        </View>
-                      )}
-                      <IconSymbol name="chevron.down" size={18} color={secondaryTextColor} />
-                    </Pressable>
-                    {errors.paidBy ? <Text style={styles.errorMessage}>{errors.paidBy}</Text> : null}
-                    <Text style={[styles.sectionLabel, { color: secondaryTextColor, marginTop: 12 }]}>
-                      SPLIT BETWEEN{splitBetween.length > 0 ? ` · ${splitBetween.length} ${splitBetween.length === 1 ? 'person' : 'people'}` : ''}
-                    </Text>
-                    {isFriendTarget && targetLabel && (
-                      <Text style={[styles.splitHint, { color: secondaryTextColor, marginBottom: 6 }]}>
-                        Split between you and {targetLabel}
-                      </Text>
-                    )}
-                    <View style={[styles.splitList, { backgroundColor: isDark ? colors.gray[800] : colors.gray[50] }]}>
-                      {(group?.members || []).map((member, idx) => {
-                        const isSelected = splitBetween.includes(member.user_id);
-                        const splitAmount = splitAmounts[member.user_id];
-                        const isLast = idx === (group?.members.length ?? 0) - 1;
-                        return (
-                          <Pressable
-                            key={member.user_id}
-                            style={({ pressed }) => [
-                              styles.splitItem,
-                              !isLast && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: borderColor },
-                              { transform: [{ scale: pressed ? 0.98 : 1 }] },
-                            ]}
-                            onPress={() => toggleMemberInSplit(member.user_id)}
-                          >
-                            <Avatar user={member.user} size={34} style={{ marginRight: 12 }} />
-                            <Text style={[styles.splitName, { color: textColor }]}>
-                              {member.user_id === user?.id ? 'You' : member.user.name}
+                          {expandedPart !== 'main' && (
+                            <Text style={[styles.partSummaryMeta, { color: secondaryTextColor }]} numberOfLines={1}>
+                              {[
+                                selectedCategory ? `${selectedCategory.icon} ${selectedCategory.name}` : null,
+                                paidBy ? paidByName(paidBy) : null,
+                                splitBetween.length ? `${splitBetween.length} split` : null,
+                              ].filter(Boolean).join(' · ')}
                             </Text>
-                            <View style={styles.splitRight}>
-                              {isSelected && splitAmount > 0 && (
-                                <Text style={[styles.splitAmount, { color: secondaryTextColor }]}>
-                                  {CURRENCIES[currency].symbol}{splitAmount.toFixed(2)}
-                                </Text>
-                              )}
-                              <Checkbox checked={isSelected} borderColor={borderColor} />
-                            </View>
-                          </Pressable>
-                        );
-                      })}
+                          )}
+                        </View>
+                        {expandedPart !== 'main' && (
+                          <Text style={[styles.partSummaryAmount, { color: textColor }]}>
+                            {CURRENCIES[currency].symbol}{(parseFloat(amount) || 0).toFixed(2)}
+                          </Text>
+                        )}
+                      </Pressable>
+                      <Pressable onPress={removePartOne} hitSlop={8} style={({ pressed }) => [{ opacity: pressed ? 0.6 : 1, padding: 8 }]}>
+                        <IconSymbol name="trash.fill" size={18} color={colors.error} />
+                      </Pressable>
                     </View>
-                    {errors.split ? <Text style={styles.errorMessage}>{errors.split}</Text> : null}
-                    <Text style={[styles.sectionLabel, { color: secondaryTextColor, marginTop: 12 }]}>NOTES (OPTIONAL)</Text>
-                    <Input
-                      value={notes}
-                      onChangeText={setNotes}
-                      placeholder="Add a note for this part…"
-                      placeholderTextColor={isDark ? colors.gray[500] : colors.gray[400]}
-                      multiline
-                      numberOfLines={2}
-                      leftIcon={
-                        <IconSymbol name="bubble.left" size={20} color={isDark ? colors.gray[400] : colors.gray[500]} />
-                      }
-                    />
-                  </MotiView>
+                    {expandedPart === 'main' && (
+                      <>
+                        <TextInput
+                          style={[styles.extraLineInput, { color: textColor, borderColor }]}
+                          placeholder="What's this part for? (required)"
+                          placeholderTextColor={isDark ? colors.gray[600] : colors.gray[400]}
+                          value={description}
+                          onChangeText={setDescription}
+                          returnKeyType="done"
+                        />
+                        {errors.description ? <Text style={styles.errorMessage}>{errors.description}</Text> : null}
+                        <View style={styles.extraLineAmountRow}>
+                          <Text style={[styles.extraLineCurrency, { color: secondaryTextColor }]}>{CURRENCIES[currency].symbol}</Text>
+                          <TextInput
+                            style={[styles.extraLineAmountInput, { color: textColor }]}
+                            placeholder="0.00"
+                            placeholderTextColor={isDark ? colors.gray[600] : colors.gray[300]}
+                            value={amount}
+                            onChangeText={setAmount}
+                            keyboardType="decimal-pad"
+                            returnKeyType="done"
+                          />
+                        </View>
+                        {errors.amount ? <Text style={styles.errorMessage}>{errors.amount}</Text> : null}
+                        <View style={styles.metaChipRow}>
+                          <Pressable
+                            onPress={() => openSheet('category', 'main')}
+                            style={[styles.metaChip, { borderColor, backgroundColor: isDark ? colors.gray[800] : colors.gray[50] }]}
+                          >
+                            <Text style={[styles.metaChipText, { color: textColor }]}>
+                              {selectedCategory ? `${selectedCategory.icon} ${selectedCategory.name}` : 'Category'}
+                            </Text>
+                          </Pressable>
+                          <Pressable
+                            onPress={() => openSheet('paidBy', 'main')}
+                            style={[styles.metaChip, { borderColor, backgroundColor: isDark ? colors.gray[800] : colors.gray[50] }]}
+                          >
+                            {paidBy && getMember(paidBy) ? (
+                              <Avatar user={getMember(paidBy)!.user} size={18} />
+                            ) : null}
+                            <Text style={[styles.metaChipText, { color: textColor }]}>
+                              {paidBy ? paidByName(paidBy) : 'Paid by'}
+                            </Text>
+                          </Pressable>
+                          <Pressable
+                            onPress={() => openSheet('split', 'main')}
+                            style={[styles.metaChip, { borderColor, backgroundColor: isDark ? colors.gray[800] : colors.gray[50] }]}
+                          >
+                            <Text style={[styles.metaChipText, { color: textColor }]}>
+                              Split · {splitBetween.length}
+                            </Text>
+                          </Pressable>
+                        </View>
+                        {errors.paidBy ? <Text style={styles.errorMessage}>{errors.paidBy}</Text> : null}
+                        {errors.split ? <Text style={styles.errorMessage}>{errors.split}</Text> : null}
+                        {(notes.trim() || notesOpen.main) ? (
+                          <Input
+                            value={notes}
+                            onChangeText={setNotes}
+                            placeholder="Add a note for this part…"
+                            placeholderTextColor={isDark ? colors.gray[500] : colors.gray[400]}
+                            multiline
+                            numberOfLines={2}
+                            leftIcon={
+                              <IconSymbol name="bubble.left" size={20} color={isDark ? colors.gray[400] : colors.gray[500]} />
+                            }
+                          />
+                        ) : (
+                          <Pressable
+                            onPress={() => setNotesOpen((prev) => ({ ...prev, main: true }))}
+                            style={({ pressed }) => [styles.addNoteButton, { opacity: pressed ? 0.7 : 1 }]}
+                          >
+                            <IconSymbol name="plus" size={14} color={secondaryTextColor} />
+                            <Text style={[styles.addNoteText, { color: secondaryTextColor }]}>Add note</Text>
+                          </Pressable>
+                        )}
+                      </>
+                    )}
+                  </View>
                 </>
               )}
 
-              {/* ── Extra lines (grouped expense: Part 2, Part 3, …) ── */}
-              {extraLines.length > 0 && extraLines.map((line, idx) => (
-                <MotiView
+              {/* ── Extra lines (accordion: Part 2+) ── */}
+              {extraLines.length > 0 && extraLines.map((line, idx) => {
+                const isOpen = expandedPart === idx;
+                const notesKey = `extra_${idx}`;
+                return (
+                <View
                   key={idx}
-                  from={{ opacity: 0, translateY: 10 }}
-                  animate={{ opacity: 1, translateY: 0 }}
-                  transition={{ type: 'spring', damping: 20, stiffness: 200 }}
-                  style={[styles.extraLineCard, { backgroundColor: cardBg, borderColor }]}
+                  style={[styles.extraLineCard, { backgroundColor: cardBg, borderColor, padding: isOpen ? 16 : 0 }]}
                 >
-                  <View style={styles.extraLineCardHeader}>
-                    <Text style={[styles.extraLineTitle, { color: secondaryTextColor }]}>
-                      Part {idx + 2}
-                    </Text>
-                    {extraLines.length >= 1 && (
-                      <Pressable
-                        onPress={() => removeExtraLine(idx)}
-                        hitSlop={8}
-                        style={({ pressed }) => [{ opacity: pressed ? 0.6 : 1 }]}
-                      >
-                        <IconSymbol name="trash.fill" size={20} color={colors.error} />
-                      </Pressable>
-                    )}
-                  </View>
-                  <TextInput
-                    style={[styles.extraLineInput, { color: textColor, borderColor }]}
-                    placeholder="What's this part for?"
-                    placeholderTextColor={isDark ? colors.gray[600] : colors.gray[400]}
-                    value={line.description}
-                    onChangeText={(text) => updateExtraLine(idx, { description: text })}
-                    returnKeyType="done"
-                  />
-                  {errors[`extraDesc_${idx}`] ? <Text style={styles.errorMessage}>{errors[`extraDesc_${idx}`]}</Text> : null}
-                  <View style={styles.extraLineAmountRow}>
-                    <Text style={[styles.extraLineCurrency, { color: secondaryTextColor }]}>{CURRENCIES[currency].symbol}</Text>
-                    <TextInput
-                      style={[styles.extraLineAmountInput, { color: textColor }]}
-                      placeholder="0.00"
-                      placeholderTextColor={isDark ? colors.gray[600] : colors.gray[300]}
-                      value={line.amount}
-                      onChangeText={(text) => updateExtraLine(idx, { amount: text })}
-                      keyboardType="decimal-pad"
-                      returnKeyType="done"
-                    />
-                  </View>
-                  {errors[`extraAmount_${idx}`] ? <Text style={styles.errorMessage}>{errors[`extraAmount_${idx}`]}</Text> : null}
-                  <Text style={[styles.sectionLabel, { color: secondaryTextColor, marginTop: 12 }]}>CATEGORY</Text>
-                  <Pressable
-                    onPress={() => openSheet('category', idx)}
-                    style={[styles.selectorRow, { backgroundColor: isDark ? colors.gray[800] : colors.gray[50], borderColor }]}
-                  >
-                    {line.category ? (
-                      <View style={styles.selectorLeft}>
-                        <Text style={styles.categoryTileEmoji}>{line.category.icon}</Text>
-                        <Text style={[styles.selectorValue, { color: textColor, marginLeft: 10 }]}>{line.category.name}</Text>
-                      </View>
-                    ) : (
-                      <View style={styles.selectorLeft}>
-                        <View style={[styles.selectorIconWrap, { backgroundColor: borderColor }]}>
-                          <IconSymbol name="square.grid.2x2" size={16} color={secondaryTextColor} />
-                        </View>
-                        <Text style={[styles.selectorPlaceholder, { color: secondaryTextColor }]}>
-                          Choose category
+                  <View style={[styles.partSummaryRow, isOpen && { paddingHorizontal: 0, paddingTop: 0 }]}>
+                    <Pressable
+                      onPress={() => { hapticSelection(); setExpandedPart(idx); }}
+                      style={styles.partSummaryHit}
+                    >
+                      <View style={styles.partSummaryText}>
+                        <Text style={[styles.partSummaryTitle, { color: textColor }]} numberOfLines={1}>
+                          {line.description.trim() || `Part ${idx + 2}`}
                         </Text>
-                      </View>
-                    )}
-                    <IconSymbol name="chevron.down" size={18} color={secondaryTextColor} />
-                  </Pressable>
-                  <Text style={[styles.sectionLabel, { color: secondaryTextColor, marginTop: 12 }]}>PAID BY</Text>
-                  <Pressable
-                    onPress={() => openSheet('paidBy', idx)}
-                    style={[styles.selectorRow, { backgroundColor: isDark ? colors.gray[800] : colors.gray[50], borderColor }]}
-                  >
-                    {line.paidBy ? (
-                      <View style={styles.selectorLeft}>
-                        {getMember(line.paidBy) && (
-                          <Avatar user={getMember(line.paidBy)!.user} size={30} style={{ marginRight: 10 }} />
-                        )}
-                        <Text style={[styles.selectorValue, { color: textColor }]}>
-                          {line.paidBy === user?.id ? 'You' : getMember(line.paidBy)?.user.name || 'Unknown'}
-                        </Text>
-                      </View>
-                    ) : (
-                      <View style={styles.selectorLeft}>
-                        <View style={[styles.selectorIconWrap, { backgroundColor: borderColor }]}>
-                          <IconSymbol name="person" size={16} color={secondaryTextColor} />
-                        </View>
-                        <Text style={[styles.selectorPlaceholder, { color: secondaryTextColor }]}>
-                          Who paid?
-                        </Text>
-                      </View>
-                    )}
-                    <IconSymbol name="chevron.down" size={18} color={secondaryTextColor} />
-                  </Pressable>
-                  {errors[`extraPaidBy_${idx}`] ? <Text style={styles.errorMessage}>{errors[`extraPaidBy_${idx}`]}</Text> : null}
-                  <Text style={[styles.sectionLabel, { color: secondaryTextColor, marginTop: 12 }]}>
-                    SPLIT BETWEEN{line.splitBetween.length > 0 ? ` · ${line.splitBetween.length} ${line.splitBetween.length === 1 ? 'person' : 'people'}` : ''}
-                  </Text>
-                  <View style={[styles.splitList, { backgroundColor: isDark ? colors.gray[800] : colors.gray[50] }]}>
-                    {(group?.members || []).map((member, mi) => {
-                      const isSelected = line.splitBetween.includes(member.user_id);
-                      const lineAmt = line.splitBetween.length > 0 ? (parseFloat(line.amount) || 0) / line.splitBetween.length : 0;
-                      const splitAmount = isSelected ? Math.round(lineAmt * 100) / 100 : 0;
-                      const isLast = mi === (group?.members?.length ?? 0) - 1;
-                      return (
-                        <Pressable
-                          key={member.user_id}
-                          style={({ pressed }) => [
-                            styles.splitItem,
-                            !isLast && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: borderColor },
-                            { transform: [{ scale: pressed ? 0.98 : 1 }] },
-                          ]}
-                          onPress={() => toggleExtraLineSplit(idx, member.user_id)}
-                        >
-                          <Avatar user={member.user} size={34} style={{ marginRight: 12 }} />
-                          <Text style={[styles.splitName, { color: textColor }]}>
-                            {member.user_id === user?.id ? 'You' : member.user.name}
+                        {!isOpen && (
+                          <Text style={[styles.partSummaryMeta, { color: secondaryTextColor }]} numberOfLines={1}>
+                            {[
+                              line.category ? `${line.category.icon} ${line.category.name}` : null,
+                              line.paidBy ? paidByName(line.paidBy) : null,
+                              line.splitBetween.length ? `${line.splitBetween.length} split` : null,
+                            ].filter(Boolean).join(' · ')}
                           </Text>
-                          <View style={styles.splitRight}>
-                            {isSelected && splitAmount > 0 && (
-                              <Text style={[styles.splitAmount, { color: secondaryTextColor }]}>
-                                {CURRENCIES[currency].symbol}{splitAmount.toFixed(2)}
-                              </Text>
-                            )}
-                            <Checkbox checked={isSelected} borderColor={borderColor} />
-                          </View>
-                        </Pressable>
-                      );
-                    })}
+                        )}
+                      </View>
+                      {!isOpen && (
+                        <Text style={[styles.partSummaryAmount, { color: textColor }]}>
+                          {CURRENCIES[currency].symbol}{(parseFloat(line.amount) || 0).toFixed(2)}
+                        </Text>
+                      )}
+                    </Pressable>
+                    <Pressable
+                      onPress={() => removeExtraLine(idx)}
+                      hitSlop={8}
+                      style={({ pressed }) => [{ opacity: pressed ? 0.6 : 1, padding: 8 }]}
+                    >
+                      <IconSymbol name="trash.fill" size={18} color={colors.error} />
+                    </Pressable>
                   </View>
-                  {errors[`extraSplit_${idx}`] ? <Text style={styles.errorMessage}>{errors[`extraSplit_${idx}`]}</Text> : null}
-                  <Text style={[styles.sectionLabel, { color: secondaryTextColor, marginTop: 12 }]}>NOTES (OPTIONAL)</Text>
-                  <Input
-                    value={line.notes}
-                    onChangeText={(text) => updateExtraLine(idx, { notes: text })}
-                    placeholder="Add a note for this part…"
-                    placeholderTextColor={isDark ? colors.gray[500] : colors.gray[400]}
-                    multiline
-                    numberOfLines={2}
-                    leftIcon={
-                      <IconSymbol name="bubble.left" size={20} color={isDark ? colors.gray[400] : colors.gray[500]} />
-                    }
-                  />
-                </MotiView>
-              ))}
+                  {isOpen && (
+                    <>
+                      <TextInput
+                        style={[styles.extraLineInput, { color: textColor, borderColor }]}
+                        placeholder="What's this part for?"
+                        placeholderTextColor={isDark ? colors.gray[600] : colors.gray[400]}
+                        value={line.description}
+                        onChangeText={(text) => updateExtraLine(idx, { description: text })}
+                        returnKeyType="done"
+                      />
+                      {errors[`extraDesc_${idx}`] ? <Text style={styles.errorMessage}>{errors[`extraDesc_${idx}`]}</Text> : null}
+                      <View style={styles.extraLineAmountRow}>
+                        <Text style={[styles.extraLineCurrency, { color: secondaryTextColor }]}>{CURRENCIES[currency].symbol}</Text>
+                        <TextInput
+                          style={[styles.extraLineAmountInput, { color: textColor }]}
+                          placeholder="0.00"
+                          placeholderTextColor={isDark ? colors.gray[600] : colors.gray[300]}
+                          value={line.amount}
+                          onChangeText={(text) => updateExtraLine(idx, { amount: text })}
+                          keyboardType="decimal-pad"
+                          returnKeyType="done"
+                        />
+                      </View>
+                      {errors[`extraAmount_${idx}`] ? <Text style={styles.errorMessage}>{errors[`extraAmount_${idx}`]}</Text> : null}
+                      <View style={styles.metaChipRow}>
+                        <Pressable
+                          onPress={() => openSheet('category', idx)}
+                          style={[styles.metaChip, { borderColor, backgroundColor: isDark ? colors.gray[800] : colors.gray[50] }]}
+                        >
+                          <Text style={[styles.metaChipText, { color: textColor }]}>
+                            {line.category ? `${line.category.icon} ${line.category.name}` : 'Category'}
+                          </Text>
+                        </Pressable>
+                        <Pressable
+                          onPress={() => openSheet('paidBy', idx)}
+                          style={[styles.metaChip, { borderColor, backgroundColor: isDark ? colors.gray[800] : colors.gray[50] }]}
+                        >
+                          {line.paidBy && getMember(line.paidBy) ? (
+                            <Avatar user={getMember(line.paidBy)!.user} size={18} />
+                          ) : null}
+                          <Text style={[styles.metaChipText, { color: textColor }]}>
+                            {line.paidBy ? paidByName(line.paidBy) : 'Paid by'}
+                          </Text>
+                        </Pressable>
+                        <Pressable
+                          onPress={() => openSheet('split', idx)}
+                          style={[styles.metaChip, { borderColor, backgroundColor: isDark ? colors.gray[800] : colors.gray[50] }]}
+                        >
+                          <Text style={[styles.metaChipText, { color: textColor }]}>
+                            Split · {line.splitBetween.length}
+                          </Text>
+                        </Pressable>
+                      </View>
+                      {errors[`extraPaidBy_${idx}`] ? <Text style={styles.errorMessage}>{errors[`extraPaidBy_${idx}`]}</Text> : null}
+                      {errors[`extraSplit_${idx}`] ? <Text style={styles.errorMessage}>{errors[`extraSplit_${idx}`]}</Text> : null}
+                      {(line.notes.trim() || notesOpen[notesKey]) ? (
+                        <Input
+                          value={line.notes}
+                          onChangeText={(text) => updateExtraLine(idx, { notes: text })}
+                          placeholder="Add a note for this part…"
+                          placeholderTextColor={isDark ? colors.gray[500] : colors.gray[400]}
+                          multiline
+                          numberOfLines={2}
+                          leftIcon={
+                            <IconSymbol name="bubble.left" size={20} color={isDark ? colors.gray[400] : colors.gray[500]} />
+                          }
+                        />
+                      ) : (
+                        <Pressable
+                          onPress={() => setNotesOpen((prev) => ({ ...prev, [notesKey]: true }))}
+                          style={({ pressed }) => [styles.addNoteButton, { opacity: pressed ? 0.7 : 1 }]}
+                        >
+                          <IconSymbol name="plus" size={14} color={secondaryTextColor} />
+                          <Text style={[styles.addNoteText, { color: secondaryTextColor }]}>Add note</Text>
+                        </Pressable>
+                      )}
+                    </>
+                  )}
+                </View>
+                );
+              })}
 
-              {/* ── Add more expense at bottom of list (create or edit grouped) ── */}
-              {(!isEditMode || isEditModeGrouped) && (
+              {/* ── Add more (single expense only; grouped uses sticky footer) ── */}
+              {(!isEditMode || isEditModeGrouped) && !isGroupedLayout && (
                 <MotiView
                   from={{ opacity: 0, translateY: 10 }}
                   animate={{ opacity: 1, translateY: 0 }}
@@ -1405,6 +1364,29 @@ export default function AddExpenseScreen() {
               ) : null}
 
             </ScrollView>
+            {isGroupedLayout && (
+              <View style={[styles.stickyFooter, { backgroundColor, borderTopColor: borderColor }]}>
+                <View>
+                  <Text style={[styles.stickyFooterLabel, { color: secondaryTextColor }]}>TOTAL</Text>
+                  <Text style={[styles.stickyFooterAmount, { color: textColor }]}>
+                    {CURRENCIES[currency].symbol}{totalAmount.toFixed(2)}
+                  </Text>
+                </View>
+                {(!isEditMode || isEditModeGrouped) && (
+                  <Pressable
+                    onPress={handleAddMoreExpense}
+                    style={({ pressed }) => [
+                      styles.stickyAddButton,
+                      { backgroundColor: colors.primary[500] + '18', borderColor: colors.primary[500] + '40', opacity: pressed ? 0.8 : 1 },
+                    ]}
+                  >
+                    <IconSymbol name="plus.circle" size={20} color={colors.primary[500]} />
+                    <Text style={[styles.addMoreButtonText, { color: colors.primary[500] }]}>Add part</Text>
+                  </Pressable>
+                )}
+              </View>
+            )}
+            </>
           ) : null}
         </KeyboardAvoidingView>
 
@@ -1439,7 +1421,9 @@ export default function AddExpenseScreen() {
                 ? 'Select Currency'
                 : (activeSheet ?? activeSheetRef.current) === 'category'
                   ? 'Select Category'
-                  : 'Who Paid?'}
+                  : (activeSheet ?? activeSheetRef.current) === 'split'
+                    ? 'Split this part'
+                    : 'Who Paid?'}
             </Text>
 
             {/* Currency list with search */}
@@ -1562,6 +1546,48 @@ export default function AddExpenseScreen() {
               </Pressable>
               );
             })}
+
+            {/* Split member list (grouped parts) */}
+            {(activeSheet ?? activeSheetRef.current) === 'split' && group && (() => {
+              const target = pickerLineTargetRef.current;
+              const ids = target === 'main' ? splitBetween : extraLines[target]?.splitBetween ?? [];
+              const lineAmount = target === 'main'
+                ? (parseFloat(amount) || 0)
+                : (parseFloat(extraLines[target]?.amount || '') || 0);
+              const per = ids.length > 0 ? lineAmount / ids.length : 0;
+              return group.members.map((member, mi) => {
+                const isSelected = ids.includes(member.user_id);
+                const splitAmount = isSelected ? Math.round(per * 100) / 100 : 0;
+                const isLast = mi === group.members.length - 1;
+                return (
+                  <Pressable
+                    key={member.user_id}
+                    style={({ pressed }) => [
+                      styles.sheetItem,
+                      { borderBottomColor: borderColor },
+                      isSelected && { backgroundColor: colors.primary[500] + '14', borderRadius: 10 },
+                      { opacity: pressed ? 0.8 : 1 },
+                    ]}
+                    onPress={() => toggleSheetSplit(member.user_id)}
+                  >
+                    <View style={styles.sheetItemLeft}>
+                      <Avatar user={member.user} size={36} style={{ marginRight: 12 }} />
+                      <Text style={[styles.sheetItemTitle, { color: textColor }]}>
+                        {member.user_id === user?.id ? 'You' : member.user.name}
+                      </Text>
+                    </View>
+                    <View style={styles.splitRight}>
+                      {isSelected && splitAmount > 0 && (
+                        <Text style={[styles.splitAmount, { color: secondaryTextColor }]}>
+                          {CURRENCIES[currency].symbol}{splitAmount.toFixed(2)}
+                        </Text>
+                      )}
+                      <Checkbox checked={isSelected} borderColor={borderColor} />
+                    </View>
+                  </Pressable>
+                );
+              });
+            })()}
           </BottomSheetScrollView>
         </BottomSheet>
         )}
@@ -1781,7 +1807,99 @@ const styles = StyleSheet.create({
     padding: 16,
     borderRadius: 14,
     borderWidth: 1,
-    marginBottom: 16,
+    marginBottom: 12,
+    overflow: 'hidden',
+  },
+  partSummaryRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  partSummaryHit: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    minHeight: 44,
+  },
+  partSummaryText: {
+    flex: 1,
+    marginRight: 8,
+  },
+  partSummaryTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  partSummaryMeta: {
+    fontSize: 12,
+    marginTop: 3,
+  },
+  partSummaryAmount: {
+    fontSize: 15,
+    fontWeight: '600',
+    marginRight: 4,
+  },
+  metaChipRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 14,
+    marginBottom: 8,
+  },
+  metaChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 20,
+    borderWidth: 1,
+  },
+  metaChipText: {
+    fontSize: 13,
+    fontWeight: '500',
+  },
+  addNoteButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 8,
+    marginTop: 4,
+  },
+  addNoteText: {
+    fontSize: 13,
+    fontWeight: '500',
+  },
+  stickyFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    paddingBottom: 10,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    gap: 12,
+  },
+  stickyFooterLabel: {
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 1.2,
+  },
+  stickyFooterAmount: {
+    fontSize: 22,
+    fontWeight: '700',
+    letterSpacing: -0.4,
+    marginTop: 2,
+  },
+  stickyAddButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderStyle: 'dashed',
   },
   extraLineCardHeader: {
     flexDirection: 'row',
